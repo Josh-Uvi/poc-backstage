@@ -1,6 +1,7 @@
 import { createApp } from '@backstage/frontend-defaults';
 import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import techRadarPlugin from '@backstage-community/plugin-tech-radar/alpha';
+import homePlugin from '@backstage/plugin-home/alpha';
 import { navModule } from './modules/nav';
 import { githubAuthApiRef } from '@backstage/core-plugin-api';
 import { SignInPageBlueprint } from '@backstage/plugin-app-react';
@@ -10,8 +11,10 @@ import {
   createFrontendModule,
 } from '@backstage/frontend-plugin-api';
 import { techRadarApiRef } from '@backstage-community/plugin-tech-radar';
+import { techDocsReportIssueAddonModule } from '@backstage/plugin-techdocs-module-addons-contrib/alpha';
+
 import { ExampleTechRadarClient } from './TechRadar';
-import { customHomePageLayout } from './Homepage';
+import { HomePage } from './Homepage';
 
 const signInPage = SignInPageBlueprint.make({
   params: {
@@ -37,7 +40,9 @@ export default createApp({
   features: [
     catalogPlugin,
     techRadarPlugin,
+    homePlugin,
     navModule,
+    techDocsReportIssueAddonModule,
     createFrontendModule({
       pluginId: 'app',
       extensions: [signInPage],
@@ -55,7 +60,15 @@ export default createApp({
     }),
     createFrontendModule({
       pluginId: 'home',
-      extensions: [customHomePageLayout],
+      extensions: [
+        homePlugin.getExtension('page:home').override({
+          params: defineParams =>
+            defineParams({
+              path: '/',
+              loader: async () => <HomePage />,
+            }),
+        }),
+      ],
     }),
   ],
 });

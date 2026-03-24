@@ -1,0 +1,143 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: opportunity-status-change-api
+  title: Opportunity Status Change (Full Canonical Model)
+  description: |
+    Asynchronous event published when an Opportunity changes status. 
+    Includes nested Account, Team, and Product Line Item data.
+  annotations:
+    # Links to the Integrator's Guide for Adapter developers
+    backstage.io/source-location: url:https://github.com/howden/digital-backbone/docs/integrators-guide
+    # Link to the Adapter Scaffolding for this specific model
+    backstage.io/project-slug: howden/opportunity-adapter-scaffold
+spec:
+  type: openapi
+  lifecycle: production
+  owner: sales-crm-team
+  system: digital-backbone
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Opportunity Status Change
+      version: 1.1.0
+      description: |
+        ### Logical Architecture: Asynchronous
+        This model is processed by the **Message Receiver**, validated against the 
+        Canonical Schema, and published to the **Received Topic**.
+        
+        **Constraints:**
+        - No Business Logic: Enrichment must occur in the source Adapter.
+        - Reliability: 10s Delivery SLO with Exponential Backoff.
+
+    servers:
+      - url: https://api.howden.com/v1
+        description: Digital Backbone Production APIM
+
+    tags:
+      - name: Sales
+      - name: Canonical Model
+
+    paths:
+      /opportunity-status-change:
+        post:
+          tags:
+            - Sales
+          summary: Publish Opportunity Status Change
+          operationId: publishFullOpportunityStatus
+          responses:
+            '202':
+              description: Accepted. Message queued for delivery.
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AcceptedResponse'
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/OpportunityStatusChange'
+
+    components:
+      schemas:
+        OpportunityStatusChange:
+          type: object
+          required: [metadata, opportunityId, currentStatus, account]
+          properties:
+            metadata:
+              $ref: '#/components/schemas/Metadata'
+            opportunityId:
+              type: string
+            opportunityName:
+              type: string
+            currentStatus:
+              type: string
+              enum: [Qualification, Proposal, Negotiation, Closed Won, Closed Lost]
+            closeDate:
+              type: string
+              format: date
+            account:
+              $ref: '#/components/schemas/Account'
+            team:
+              type: array
+              items:
+                $ref: '#/components/schemas/TeamMember'
+            products:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductLineItem'
+          example:
+            metadata:
+              messageId: "992e8400-e29b-41d4-a716-446655441111"
+              timestamp: "2024-05-12T10:00:00Z"
+              sourceSystem: "Salesforce-UK-Adapter"
+            opportunityId: "OPP-7788"
+            opportunityName: "Professional Indemnity Renewal"
+            currentStatus: "Negotiation"
+            account:
+              accountId: "ACC-55"
+              accountName: "Global Logistics Ltd"
+            team:
+              - name: "Sarah Miller"
+                role: "Account Executive"
+                email: "s.miller@howden.com"
+            products:
+              - productId: "P-001"
+                productName: "PI Policy Standard"
+                totalPrice: 12500.00
+
+        Account:
+          type: object
+          required: [accountId, accountName]
+          properties:
+            accountId: { type: string }
+            accountName: { type: string }
+
+        TeamMember:
+          type: object
+          properties:
+            name: { type: string }
+            role: { type: string }
+            email: { type: string, format: email }
+
+        ProductLineItem:
+          type: object
+          properties:
+            productId: { type: string }
+            productName: { type: string }
+            totalPrice: { type: number, format: double }
+
+        Metadata:
+          type: object
+          required: [messageId, timestamp, sourceSystem]
+          properties:
+            messageId: { type: string, format: uuid }
+            timestamp: { type: string, format: date-time }
+            sourceSystem: { type: string }
+
+        AcceptedResponse:
+          type: object
+          properties:
+            status: { type: string, example: "Accepted" }
+            trackingId: { type: string, format: uuid }

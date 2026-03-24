@@ -1,3 +1,4 @@
+/* eslint-disable @backstage/no-undeclared-imports */
 import {
   Sidebar,
   SidebarDivider,
@@ -12,11 +13,6 @@ import { SidebarLogo } from './SidebarLogo';
 import MenuIcon from '@material-ui/icons/Menu';
 import SearchIcon from '@material-ui/icons/Search';
 import { SidebarSearchModal } from '@backstage/plugin-search';
-import {
-  UserSettingsSignInAvatar,
-  Settings as SidebarSettings,
-} from '@backstage/plugin-user-settings';
-import { NotificationsSidebarItem } from '@backstage/plugin-notifications';
 
 export const SidebarContent = NavContentBlueprint.make({
   params: {
@@ -24,8 +20,20 @@ export const SidebarContent = NavContentBlueprint.make({
       const nav = navItems.withComponent(item => (
         <SidebarItem icon={() => item.icon} to={item.href} text={item.title} />
       ));
-      // Skipped items
+
+      // Take items we want to position explicitly (removes them from nav.rest)
+      const homeItem = nav.take('page:home');
+      const catalogItem = nav.take('page:catalog');
+      const scaffolderItem = nav.take('page:scaffolder');
+
+      // Skip items - hide these from the sidebar
       nav.take('page:search');
+      nav.take('page:tech-radar');
+      nav.take('page:app-visualizer');
+      nav.take('page:graphiql');
+      nav.take('page:lighthouse');
+      nav.take('page:cost-insights');
+
       return compatWrapper(
         <Sidebar>
           <SidebarLogo />
@@ -34,24 +42,15 @@ export const SidebarContent = NavContentBlueprint.make({
           </SidebarGroup>
           <SidebarDivider />
           <SidebarGroup label="Menu" icon={<MenuIcon />}>
-            {nav.take('page:catalog')}
-            {nav.take('page:scaffolder')}
+            {homeItem}
+            {catalogItem}
+            {scaffolderItem}
             <SidebarDivider />
             <SidebarScrollWrapper>
               {nav.rest({ sortBy: 'title' })}
             </SidebarScrollWrapper>
           </SidebarGroup>
           <SidebarSpace />
-          <SidebarDivider />
-          <NotificationsSidebarItem />
-          <SidebarDivider />
-          <SidebarGroup
-            label="Settings"
-            icon={<UserSettingsSignInAvatar />}
-            to="/settings"
-          >
-            <SidebarSettings />
-          </SidebarGroup>
         </Sidebar>,
       );
     },

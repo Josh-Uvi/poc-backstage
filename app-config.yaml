@@ -11,14 +11,16 @@ app:
     - nav-item:user-settings: false
     - nav-item:catalog: false
     - nav-item:scaffolder: false
+    - header-item:plugins: false
 
     # Configure the catalog index page to be the root page, this is normally mounted on /catalog
     - page:catalog:
         config:
           path: /
+          noHeader: true
 
 organization:
-  name: My Company
+  name: Howden
 
 backend:
   # Used for enabling authentication, secret is shared by all backend plugins
@@ -91,11 +93,17 @@ catalog:
     entityFilename: catalog-info.yaml
     pullRequestBranchName: backstage-integration
   rules:
-    - allow: [Component, System, API, Resource, Location]
+    - allow: [Component, System, API, Resource, Location, Template, Domain]
   locations:
     # Local example data, file locations are relative to the backend process, typically `packages/backend`
+    # - type: file
+    #   target: ../../examples/entities.yaml
     - type: file
-      target: ../../examples/entities.yaml
+      target: ../../examples/ledger-bs.yaml
+    - type: file
+      target: ../../examples/opportunity-bs.yaml
+    - type: file
+      target: ../../examples/bs-doc-example/catalog-info.yaml
 
     # Local example template
     - type: file
@@ -112,6 +120,9 @@ catalog:
     ## Uncomment these lines to add more example data
     # - type: url
     #   target: https://github.com/backstage/backstage/blob/master/packages/catalog-model/examples/all.yaml
+    # https://github.com/jujhar-teaching-org/backstage-template-express-js-api/tree/main
+    # https://github.com/backstage/software-templates/blob/main/all-templates.yaml
+    # https://github.com/juvi07/bs-tutorial/blob/master/catalog-info.yaml
 
     ## Uncomment these lines to add an example org
     # - type: url

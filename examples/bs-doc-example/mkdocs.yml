@@ -1,0 +1,7 @@
+site_name: example-docs
+site_description: Digital Backbone Feature Specification
+nav:
+  - Home: home.md
+  - Getting Started: index.md
+plugins:
+  - techdocs-core

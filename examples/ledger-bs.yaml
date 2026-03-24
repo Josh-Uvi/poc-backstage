@@ -1,0 +1,120 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: trial-balance-created-api
+  description: Canonical Data Model for daily financial trial balance events.
+  annotations:
+    # Links to your documentation/guide mentioned in the spec
+    backstage.io/source-location: url:https://github.com/howden/digital-backbone/
+    system: finance-integration-system
+spec:
+  type: openapi
+  lifecycle: production
+  owner: finance-platform-team
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Trial Balance Created (Canonical)
+      version: 1.0.0
+      description: |
+        ### Digital Backbone Integration
+        This is an **Asynchronous** canonical model. 
+        - **Latency SLO**: < 10s
+        - **Reliability**: DLQ enabled with exponential backoff.
+    
+    servers:
+      - url: https://api.howden.com/v1
+        description: Digital Backbone Production
+    
+    tags:
+      - name: Canonical Model
+      - name: Finance
+
+    paths:
+      /trial-balance-created:
+        post:
+          summary: Publish Daily Trial Balance
+          operationId: publishTrialBalance
+          responses:
+            '202':
+              description: Accepted by Message Receiver
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/AcceptedResponse'
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/TrialBalanceCreated'
+
+    components:
+      schemas:
+        # Referenced from your shared Canonical Dictionary
+        TrialBalanceCreated:
+          type: object
+          required: [metadata, trialBalanceDate, entityId, currency, accounts]
+          properties:
+            metadata:
+              $ref: '#/components/schemas/Metadata'
+            trialBalanceDate:
+              type: string
+              format: date
+            entityId:
+              type: string
+              description: Howden Entity ID
+            currency:
+              type: string
+              example: "GBP"
+            totalDebit:
+              type: number
+              format: double
+            totalCredit:
+              type: number
+              format: double
+            accounts:
+              type: array
+              items:
+                $ref: '#/components/schemas/AccountEntry'
+          example:
+            metadata:
+              messageId: "550e8400-e29b-41d4-a716-446655440000"
+              timestamp: "2026-03-20T15:00:00Z"
+              sourceSystem: "SAP-Adapter"
+            trialBalanceDate: "2026-03-19"
+            entityId: "HOWDEN-UK"
+            currency: "GBP"
+            totalDebit: 1000.00
+            totalCredit: 1000.00
+            accounts:
+              - accountCode: "101"
+                accountName: "Cash"
+                debitAmount: 1000.00
+                creditAmount: 0.00
+              - accountCode: "201"
+                accountName: "Equity"
+                debitAmount: 0.00
+                creditAmount: 1000.00
+
+        AccountEntry:
+          type: object
+          properties:
+            accountCode: { type: string }
+            accountName: { type: string }
+            debitAmount: { type: number, format: double }
+            creditAmount: { type: number, format: double }
+
+        Metadata:
+          type: object
+          required: [messageId, timestamp, sourceSystem]
+          properties:
+            messageId: { type: string, format: uuid }
+            timestamp: { type: string, format: date-time }
+            sourceSystem: { type: string }
+
+        AcceptedResponse:
+          type: object
+          properties:
+            status: { type: string, example: "Accepted" }
+            trackingId: { type: string, format: uuid }
