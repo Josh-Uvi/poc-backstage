@@ -2,11 +2,11 @@ apiVersion: scaffolder.backstage.io/v1beta3
 # https://backstage.io/docs/features/software-catalog/descriptor-format#kind-template
 kind: Template
 metadata:
-  name: example-nodejs-template
-  title: Example Node.js Template
-  description: An example template for the scaffolder that creates a simple Node.js service
+  name: adopters-template
+  title: Adopter Template A
+  description: An example template for the scaffolder that creates a simple logic app
 spec:
-  owner: user:guest
+  owner: group:guests
   type: service
 
   # These parameters are used to generate the input form in the frontend, and are
@@ -73,7 +73,7 @@ spec:
       input:
         recipients: entity
         entityRefs:
-          - user:default/guest
+          - group:default/guests
         title: 'Template executed'
         info: 'Your template has been executed'
         severity: 'normal'

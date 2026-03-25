@@ -1,0 +1,10 @@
+site_name: developer-guide-docs
+site_description: Developer Guide
+nav:
+  - How the Digital Backbone works: index.md
+  - Publishing data events: data-events.md
+  - Consuming data events: consume-data-events.md
+  - Calling a synchronous API: call-synchronous-api.md
+  - Exposing your system synchronous APIs: system-synchronous-api.md
+plugins:
+  - techdocs-core

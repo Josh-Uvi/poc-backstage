@@ -21,11 +21,11 @@ spec:
         This is an **Asynchronous** canonical model. 
         - **Latency SLO**: < 10s
         - **Reliability**: DLQ enabled with exponential backoff.
-    
+
     servers:
       - url: https://api.howden.com/v1
         description: Digital Backbone Production
-    
+
     tags:
       - name: Canonical Model
       - name: Finance
@@ -70,9 +70,11 @@ spec:
             totalDebit:
               type: number
               format: double
+              description: The sum of all amounts recorded on the debit side of that entry.
             totalCredit:
               type: number
               format: double
+              description: The sum of all amounts recorded on the credit side of that entry.
             accounts:
               type: array
               items:

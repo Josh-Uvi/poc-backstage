@@ -1,4 +1,4 @@
-site_name: Howden-docs
+site_name: Adrs-docs
 site_description: Digital Backbone Feature Specification
 nav:
   - Home: home.md

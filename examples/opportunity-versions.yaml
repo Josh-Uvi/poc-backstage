@@ -1,0 +1,135 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: opportunity-status-change
+  title: Opportunity Status Change (Multi-Version Lifecycle)
+  description: |
+    Canonical Model for Opportunity events. 
+    Manages the transition from Legacy v1 to the Full Financial Model in v3.
+  annotations:
+    backstage.io/source-location: url:https://github.com/howden/digital-backbone/
+    # Links to the Integrator's Guide mentioned in the Feature Spec
+    howden.com/integrator-guide: https://docs.howden.com/digital-backbone/guide
+spec:
+  type: openapi
+  lifecycle: production
+  owner: sales-crm-team
+  system: digital-backbone
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Opportunity Status Change
+      version: 3.0.0
+      description: |
+        ### Version Lifecycle Policy
+        Per Digital Backbone governance, we support a 90-day migration window:
+        - **v3 (Active)**: Includes Account, Team, Products, and Financials. **Required for new Adapters.**
+        - **v2 (Sunset)**: Planned for Deprecation. Migration to v3 required within 90 days.
+        - **v1 (Legacy)**: Deprecated. Unsupported for new registrations.
+    
+    servers:
+      - url: https://api.howden.com/
+        description: Digital Backbone Production APIM
+
+    tags:
+      - name: "v3 - Active"
+      - name: "v2 - Transition"
+      - name: "v1 - Legacy"
+
+    paths:
+      # v3 - CURRENT ACTIVE
+      /v3/opportunity-status-change:
+        post:
+          tags: ["v3 - Active"]
+          summary: Publish Full Opportunity (v3)
+          operationId: publishV3
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/OpportunityV3'
+          responses:
+            '202':
+              description: Accepted by Message Receiver.
+
+      # v2 - PLANNED FOR DEPRECATION
+      /v2/opportunity-status-change:
+        post:
+          tags: ["v2 - Transition"]
+          summary: Publish Opportunity (v2) - Sunset in 90 Days
+          operationId: publishV2
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/OpportunityV2'
+          responses:
+            '202':
+              description: Accepted.
+
+      # v1 - DEPRECATED
+      /v1/opportunity-status-change:
+        post:
+          tags: ["v1 - Legacy"]
+          summary: Publish Opportunity (v1) - DEPRECATED
+          deprecated: true
+          operationId: publishV1
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/OpportunityV1'
+          responses:
+            '202':
+              description: Accepted.
+
+    components:
+      schemas:
+        OpportunityV3:
+          allOf:
+            - $ref: '#/components/schemas/OpportunityV2'
+            - type: object
+              properties:
+                taxEstimated: { type: number, format: double }
+                regionCode: { type: string, example: "EMEA" }
+
+        OpportunityV2:
+          type: object
+          required: [metadata, opportunityId, account]
+          properties:
+            metadata: { $ref: '#/components/schemas/Metadata' }
+            opportunityId: { type: string }
+            currentStatus: { type: string, enum: [Qualification, Proposal, Negotiation, Closed Won, Closed Lost] }
+            account:
+              type: object
+              properties:
+                accountId: { type: string }
+                name: { type: string }
+            products:
+              type: array
+              items: { $ref: '#/components/schemas/Product' }
+
+        OpportunityV1:
+          type: object
+          required: [metadata, opportunityId]
+          properties:
+            metadata: { $ref: '#/components/schemas/Metadata' }
+            opportunityId: { type: string }
+            status: { type: string }
+
+        Metadata:
+          type: object
+          required: [messageId, timestamp, sourceSystem]
+          properties:
+            messageId: { type: string, format: uuid }
+            timestamp: { type: string, format: date-time }
+            sourceSystem: { type: string }
+
+        Product:
+          type: object
+          properties:
+            sku: { type: string }
+            price: { type: number }

@@ -65,12 +65,6 @@ const DigitalBackboneContent = () => {
         What is the Digital Backbone?
       </Typography>
 
-      <img
-        src="/home.png"
-        alt="Digital Backbone Prog - Home"
-        className={classes.image}
-      />
-
       <Typography variant="body1" className={classes.description}>
         The Digital Backbone is a tool to integrate various Howden business
         systems, using a common view of data. This allows many different systems
@@ -78,6 +72,14 @@ const DigitalBackboneContent = () => {
         integrate with Digital Backbone just once, and can then communicate with
         any other system on the backbone.
       </Typography>
+
+      {/* <img
+        src="/home.png"
+        alt="Digital Backbone Prog - Home"
+        className={classes.image}
+        width={50}
+        height={20}
+      /> */}
 
       <Typography variant="h6" className={classes.subtitle}>
         What does this mean for my business?
@@ -216,7 +218,7 @@ const DigitalBackboneContent = () => {
         </ListItem>
       </List>
 
-      <Typography variant="h6" className={classes.subtitle}>
+      {/* <Typography variant="h6" className={classes.subtitle}>
         Get Started with Digital Backbone
       </Typography>
 
@@ -224,7 +226,7 @@ const DigitalBackboneContent = () => {
         src="/get-started.png"
         alt="Get Started with Digital Backbone"
         className={classes.image}
-      />
+      /> */}
     </Paper>
   );
 };
@@ -232,7 +234,10 @@ const DigitalBackboneContent = () => {
 export const HomePage = () => {
   return (
     <Page themeId="home">
-      <Header title="Digital Backbone" />
+      <Header
+        title="Digital Backbone"
+        subtitle="Allows data to flow between business systems, creating seamless experiences for users."
+      />
       <Content>
         <DigitalBackboneContent />
       </Content>

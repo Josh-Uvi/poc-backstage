@@ -13,12 +13,6 @@ app:
     - nav-item:scaffolder: false
     - header-item:plugins: false
 
-    # Configure the catalog index page to be the root page, this is normally mounted on /catalog
-    - page:catalog:
-        config:
-          path: /
-          noHeader: true
-
 organization:
   name: Howden
 
@@ -101,9 +95,13 @@ catalog:
     - type: file
       target: ../../examples/ledger-bs.yaml
     - type: file
-      target: ../../examples/opportunity-bs.yaml
+      target: ../../examples/opportunity-versions.yaml
     - type: file
       target: ../../examples/bs-doc-example/catalog-info.yaml
+    - type: file
+      target: ../../examples/developer-guide-docs/catalog-info.yaml
+    - type: file
+      target: ../../examples/adr-docs/catalog-info.yaml
 
     # Local example template
     - type: file
