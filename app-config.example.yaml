@@ -1,0 +1,43 @@
+app:
+  extensions:
+    - page:home:
+        config:
+          path: /
+
+    - api:home/visits: true
+    - app-root-element:home/visit-listener: true
+    # Hide Settings from sidebar
+    - nav-item:settings: false
+    # Hide Tech Radar from sidebar
+    - nav-item:tech-radar: false
+    # Hide Visualizer from sidebar
+    - nav-item:app-visualizer: false
+    - page:app-visualizer: false
+    # Hide Notifications from sidebar
+    - page:notifications: false
+
+auth:
+  # see https://backstage.io/docs/auth/ to learn about auth providers
+  environment: development
+  providers:
+    # See https://backstage.io/docs/auth/guest/provider
+    guest: {}
+    github:
+      development:
+        clientId:
+        clientSecret:
+        signIn:
+          resolvers:
+            - resolver: usernameMatchingUserEntityName
+
+integrations:
+  github:
+    - host: github.com
+      token:
+
+techdocs:
+  builder: 'local'
+  publisher:
+    type: 'local'
+  generator:
+    runIn: local
