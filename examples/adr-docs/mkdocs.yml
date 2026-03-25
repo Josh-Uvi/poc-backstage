@@ -1,7 +1,7 @@
 site_name: Adrs-docs
 site_description: Digital Backbone Feature Specification
 nav:
-  - Home: home.md
-  - Getting Started: index.md
+  - Adoption of Lightweight ADRs: KDR-001.md
+  - Adoption of a Canonical Data Model: KDR-002.md
 plugins:
   - techdocs-core
