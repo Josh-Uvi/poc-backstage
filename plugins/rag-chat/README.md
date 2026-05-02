@@ -82,17 +82,17 @@ ragChat:
 
 ### Backend Plugin (`plugins/rag-chat-backend`)
 
-- [ ] **Create backend plugin scaffold**
+- [x] **Create backend plugin scaffold**
   - Run `yarn backstage-cli new --select backend-plugin` to generate `plugins/rag-chat-backend`
   - Register it in `packages/backend/src/index.ts` via `backend.add(import('@internal/backstage-plugin-rag-chat-backend'))`
 
-- [ ] **REST API router**
+- [x] **REST API router**
   - `POST /api/rag-chat/chat` — accepts `{ message, modelId, sourceIds, conversationId, temperature }`, returns streamed or single assistant response
   - `GET /api/rag-chat/conversations` — list saved conversations per user
   - `POST /api/rag-chat/conversations` — create/update a conversation
   - `DELETE /api/rag-chat/conversations/:id` — delete a conversation
 
-- [ ] **LLM provider integrations**
+- [x] **LLM provider integrations**
   - OpenAI (`gpt-3.5-turbo`, `gpt-4`, `gpt-4o`) via `openai` npm package
   - Anthropic (`claude-3-*`) via `@anthropic-ai/sdk`
   - Google Gemini via `@google/generative-ai`

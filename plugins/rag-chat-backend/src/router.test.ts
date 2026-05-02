@@ -7,10 +7,12 @@ import express from 'express';
 import request from 'supertest';
 import { createRouter } from './router';
 import { ConversationService } from './services/ConversationService';
+import { ILlmService } from './services/llm/LlmService';
 
 describe('createRouter', () => {
   let app: express.Express;
   let conversations: jest.Mocked<ConversationService>;
+  let llm: jest.Mocked<ILlmService>;
 
   const mockConversation = {
     id: 'conv-1',
@@ -21,6 +23,11 @@ describe('createRouter', () => {
     updatedAt: new Date().toISOString(),
   };
 
+  const mockLlmResponse = {
+    content: 'This is an assistant response.',
+    modelId: 'gpt-4',
+  };
+
   beforeEach(async () => {
     conversations = {
       listConversations: jest.fn(),
@@ -28,9 +35,12 @@ describe('createRouter', () => {
       deleteConversation: jest.fn(),
     } as any;
 
+    llm = { chat: jest.fn().mockResolvedValue(mockLlmResponse) };
+
     const router = await createRouter({
       httpAuth: mockServices.httpAuth(),
       conversations,
+      llm,
     });
     app = express();
     app.use(router);
@@ -51,8 +61,14 @@ describe('createRouter', () => {
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         conversationId: 'conv-1',
-        message: expect.objectContaining({ role: 'assistant' }),
+        message: expect.objectContaining({
+          role: 'assistant',
+          content: mockLlmResponse.content,
+        }),
       });
+      expect(llm.chat).toHaveBeenCalledWith('gpt-4', expect.objectContaining({
+        messages: expect.arrayContaining([{ role: 'user', content: 'Hello' }]),
+      }));
     });
 
     it('should create a new conversation when no conversationId is provided', async () => {

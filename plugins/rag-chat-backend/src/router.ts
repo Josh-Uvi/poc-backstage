@@ -4,6 +4,7 @@ import { z } from 'zod/v3';
 import express from 'express';
 import Router from 'express-promise-router';
 import { IConversationService } from './services/ConversationService';
+import { ILlmService } from './services/llm/LlmService';
 
 const chatSchema = z.object({
   message: z.string().min(1),
@@ -31,9 +32,11 @@ const upsertConversationSchema = z.object({
 export async function createRouter({
   httpAuth,
   conversations,
+  llm,
 }: {
   httpAuth: HttpAuthService;
   conversations: IConversationService;
+  llm: ILlmService;
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
@@ -52,7 +55,7 @@ export async function createRouter({
       throw new InputError(parsed.error.toString());
     }
 
-    const { message, modelId, sourceIds, conversationId } =
+    const { message, modelId, sourceIds, conversationId, temperature } =
       parsed.data;
 
     // Resolve or create the conversation
@@ -65,8 +68,6 @@ export async function createRouter({
       convId = newConv.id;
     }
 
-    // Append the user message
-    const userMessageId = `msg_${Date.now()}_user`;
     const existingConv = (await conversations.listConversations(userRef)).find(
       c => c.id === convId,
     );
@@ -75,37 +76,48 @@ export async function createRouter({
     }
 
     const userMessage = {
-      id: userMessageId,
+      id: `msg_${Date.now()}_user`,
       role: 'user' as const,
       content: message,
       timestamp: new Date().toISOString(),
     };
 
-    // TODO: Replace with real LLM call using modelId, sourceIds, temperature
-    const assistantContent = generateMockResponse(message, modelId, sourceIds);
+    // Build message history for the LLM
+    const llmMessages = [
+      ...existingConv.messages.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: message },
+    ];
+
+    // Add source context as a system preamble if sources are selected
+    if (sourceIds.length) {
+      llmMessages.unshift({
+        role: 'assistant' as const,
+        content: `You are a helpful assistant. Answer using context from: ${sourceIds.join(', ')}.`,
+      });
+    }
+
+    const llmResponse = await llm.chat(modelId, {
+      messages: llmMessages,
+      temperature,
+    });
 
     const assistantMessage = {
       id: `msg_${Date.now()}_assistant`,
       role: 'assistant' as const,
-      content: assistantContent,
+      content: llmResponse.content,
       timestamp: new Date().toISOString(),
     };
 
-    const updatedMessages = [
-      ...existingConv.messages,
-      userMessage,
-      assistantMessage,
-    ];
-
     await conversations.upsertConversation(
-      { id: convId, title: existingConv.title, messages: updatedMessages },
+      {
+        id: convId,
+        title: existingConv.title,
+        messages: [...existingConv.messages, userMessage, assistantMessage],
+      },
       userRef,
     );
 
-    res.json({
-      conversationId: convId,
-      message: assistantMessage,
-    });
+    res.json({ conversationId: convId, message: assistantMessage });
   });
 
   /**
@@ -152,15 +164,4 @@ export async function createRouter({
   });
 
   return router;
-}
-
-function generateMockResponse(
-  message: string,
-  modelId: string,
-  sourceIds: string[],
-): string {
-  const sourceLabel = sourceIds.length
-    ? ` (queried: ${sourceIds.join(', ')})`
-    : '';
-  return `[${modelId}] Received: "${message.slice(0, 60)}"${sourceLabel}. Real LLM integration pending.`;
 }

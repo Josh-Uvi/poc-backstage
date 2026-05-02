@@ -2,20 +2,35 @@ import {
   mockCredentials,
   startTestBackend,
 } from '@backstage/backend-test-utils';
+import { createServiceFactory } from '@backstage/backend-plugin-api';
 import { ragChatPlugin } from './plugin';
+import { llmServiceRef } from './services/llm/LlmService';
 import request from 'supertest';
+
+const mockLlmFactory = createServiceFactory({
+  service: llmServiceRef,
+  deps: {},
+  factory: () => ({
+    chat: jest.fn().mockResolvedValue({
+      content: 'Mocked assistant response.',
+      modelId: 'gpt-4',
+    }),
+  }),
+});
+
+const startBackend = () =>
+  startTestBackend({ features: [ragChatPlugin, mockLlmFactory] });
 
 describe('ragChatPlugin', () => {
   it('should list conversations (empty initially)', async () => {
-    const { server } = await startTestBackend({ features: [ragChatPlugin] });
-
+    const { server } = await startBackend();
     const res = await request(server).get('/api/rag-chat/conversations');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ items: [] });
   });
 
   it('should create and retrieve a conversation', async () => {
-    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+    const { server } = await startBackend();
 
     const createRes = await request(server)
       .post('/api/rag-chat/conversations')
@@ -36,9 +51,8 @@ describe('ragChatPlugin', () => {
   });
 
   it('should send a chat message and get a response', async () => {
-    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+    const { server } = await startBackend();
 
-    // Create a conversation first
     const convRes = await request(server)
       .post('/api/rag-chat/conversations')
       .send({ title: 'Chat test' });
@@ -56,13 +70,13 @@ describe('ragChatPlugin', () => {
       conversationId: convId,
       message: expect.objectContaining({
         role: 'assistant',
-        content: expect.stringContaining('gpt-4'),
+        content: 'Mocked assistant response.',
       }),
     });
   });
 
   it('should delete a conversation', async () => {
-    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+    const { server } = await startBackend();
 
     const createRes = await request(server)
       .post('/api/rag-chat/conversations')
@@ -79,8 +93,7 @@ describe('ragChatPlugin', () => {
   });
 
   it('should return 404 when deleting a non-existent conversation', async () => {
-    const { server } = await startTestBackend({ features: [ragChatPlugin] });
-
+    const { server } = await startBackend();
     const res = await request(server).delete(
       '/api/rag-chat/conversations/does-not-exist',
     );
@@ -88,8 +101,7 @@ describe('ragChatPlugin', () => {
   });
 
   it('should return 400 for invalid chat input', async () => {
-    const { server } = await startTestBackend({ features: [ragChatPlugin] });
-
+    const { server } = await startBackend();
     const res = await request(server)
       .post('/api/rag-chat/chat')
       .send({ message: '' });
