@@ -133,6 +133,11 @@ ragChat:
   defaultSourceIds:
     - catalog
     - techdocs
+  embedding:
+    provider: openai
+    apiToken: ${OPENAI_API_TOKEN}
+    model: text-embedding-3-small
+    # apiBaseUrl: https://api.openai.com/v1  # override for custom endpoints
   models:
     - id: gpt-4
       name: GPT-4
@@ -163,6 +168,11 @@ ragChat:
       name: TechDocs
       type: techdocs
       description: Query documentation from TechDocs
+    # - id: my-custom-source
+    #   name: My Custom Docs
+    #   type: custom
+    #   description: Custom documentation source
+    #   target: https://example.com/docs  # URL or absolute file path
 
 kubernetes:
   # see https://backstage.io/docs/features/kubernetes/configuration for kubernetes configuration options

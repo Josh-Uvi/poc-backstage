@@ -5,6 +5,7 @@ import {
 import { createRouter } from './router';
 import { conversationServiceRef } from './services/ConversationService';
 import { llmServiceRef } from './services/llm/LlmService';
+import { ragServiceRef } from './services/rag/RagService';
 
 export const ragChatPlugin = createBackendPlugin({
   pluginId: 'rag-chat',
@@ -15,10 +16,11 @@ export const ragChatPlugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         conversations: conversationServiceRef,
         llm: llmServiceRef,
+        rag: ragServiceRef,
       },
-      async init({ httpAuth, httpRouter, conversations, llm }) {
+      async init({ httpAuth, httpRouter, conversations, llm, rag }) {
         httpRouter.use(
-          await createRouter({ httpAuth, conversations, llm }),
+          await createRouter({ httpAuth, conversations, llm, rag }),
         );
         httpRouter.addAuthPolicy({
           path: '/health',

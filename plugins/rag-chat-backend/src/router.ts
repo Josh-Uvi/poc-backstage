@@ -5,6 +5,7 @@ import express from 'express';
 import Router from 'express-promise-router';
 import { IConversationService } from './services/ConversationService';
 import { ILlmService } from './services/llm/LlmService';
+import { IRagService } from './services/rag/RagService';
 
 const chatSchema = z.object({
   message: z.string().min(1),
@@ -33,10 +34,12 @@ export async function createRouter({
   httpAuth,
   conversations,
   llm,
+  rag,
 }: {
   httpAuth: HttpAuthService;
   conversations: IConversationService;
   llm: ILlmService;
+  rag: IRagService;
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
@@ -82,17 +85,38 @@ export async function createRouter({
       timestamp: new Date().toISOString(),
     };
 
+    // Index requested sources (lazy — only indexes if not yet populated)
+    for (const sourceId of sourceIds) {
+      await rag.indexSource(sourceId, credentials);
+    }
+
+    // Retrieve relevant context chunks
+    const contextChunks = sourceIds.length
+      ? await rag.retrieve(message, sourceIds, 5)
+      : [];
+
     // Build message history for the LLM
     const llmMessages = [
       ...existingConv.messages.map(m => ({ role: m.role, content: m.content })),
       { role: 'user' as const, content: message },
     ];
 
-    // Add source context as a system preamble if sources are selected
-    if (sourceIds.length) {
+    // Prepend retrieved context as a system message
+    if (contextChunks.length) {
+      const contextText = contextChunks
+        .map((c, i) => `[${i + 1}] (${c.metadata.ref ?? c.metadata.title ?? c.metadata.sourceId})\n${c.text}`)
+        .join('\n\n');
       llmMessages.unshift({
         role: 'assistant' as const,
-        content: `You are a helpful assistant. Answer using context from: ${sourceIds.join(', ')}.`,
+        content:
+          `You are a helpful Backstage assistant. Use the following context to answer the user's question.\n\n` +
+          `Context:\n${contextText}\n\n` +
+          `If the context does not contain enough information, say so clearly.`,
+      });
+    } else if (sourceIds.length) {
+      llmMessages.unshift({
+        role: 'assistant' as const,
+        content: `You are a helpful Backstage assistant. Answer using knowledge from: ${sourceIds.join(', ')}.`,
       });
     }
 

@@ -99,8 +99,8 @@ ragChat:
   - Abstract behind a common `LlmProvider` interface so providers are swappable
   - Read `apiToken` and `apiBaseUrl` from `app-config.yaml` server-side (never expose tokens to the frontend)
 
-- [ ] **RAG pipeline**
-  - Catalog source: use `CatalogClient` to fetch entities, chunk and embed metadata/descriptions
+- [x] **RAG pipeline**
+  - Catalog source: use `CatalogClient` to fetch entities( kinds such as api, component, group, template, user), chunk and embed metadata/descriptions
   - TechDocs source: read rendered HTML from TechDocs storage, chunk into passages
   - Custom source: accept a URL or file path, fetch and chunk content
   - Embed chunks using the configured model's embedding endpoint (or a dedicated embedding model)

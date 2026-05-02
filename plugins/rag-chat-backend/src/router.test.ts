@@ -8,11 +8,13 @@ import request from 'supertest';
 import { createRouter } from './router';
 import { ConversationService } from './services/ConversationService';
 import { ILlmService } from './services/llm/LlmService';
+import { IRagService } from './services/rag/RagService';
 
 describe('createRouter', () => {
   let app: express.Express;
   let conversations: jest.Mocked<ConversationService>;
   let llm: jest.Mocked<ILlmService>;
+  let rag: jest.Mocked<IRagService>;
 
   const mockConversation = {
     id: 'conv-1',
@@ -36,11 +38,16 @@ describe('createRouter', () => {
     } as any;
 
     llm = { chat: jest.fn().mockResolvedValue(mockLlmResponse) };
+    rag = {
+      indexSource: jest.fn().mockResolvedValue(undefined),
+      retrieve: jest.fn().mockResolvedValue([]),
+    };
 
     const router = await createRouter({
       httpAuth: mockServices.httpAuth(),
       conversations,
       llm,
+      rag,
     });
     app = express();
     app.use(router);
@@ -68,6 +75,33 @@ describe('createRouter', () => {
       });
       expect(llm.chat).toHaveBeenCalledWith('gpt-4', expect.objectContaining({
         messages: expect.arrayContaining([{ role: 'user', content: 'Hello' }]),
+      }));
+      expect(rag.indexSource).not.toHaveBeenCalled();
+      expect(rag.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('should call RAG retrieve when sourceIds are provided', async () => {
+      conversations.upsertConversation.mockResolvedValue(mockConversation);
+      conversations.listConversations.mockResolvedValue([mockConversation]);
+      rag.retrieve.mockResolvedValue([
+        { text: 'Backstage is a platform.', metadata: { sourceId: 'catalog', ref: 'component:default/my-app' } },
+      ]);
+
+      const response = await request(app).post('/chat').send({
+        message: 'What is Backstage?',
+        modelId: 'gpt-4',
+        conversationId: 'conv-1',
+        sourceIds: ['catalog'],
+      });
+
+      expect(response.status).toBe(200);
+      expect(rag.indexSource).toHaveBeenCalledWith('catalog', expect.anything());
+      expect(rag.retrieve).toHaveBeenCalledWith('What is Backstage?', ['catalog'], 5);
+      // Context should be injected into the LLM messages
+      expect(llm.chat).toHaveBeenCalledWith('gpt-4', expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({ role: 'assistant', content: expect.stringContaining('Backstage is a platform.') }),
+        ]),
       }));
     });
 

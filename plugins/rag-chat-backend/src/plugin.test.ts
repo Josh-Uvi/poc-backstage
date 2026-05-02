@@ -5,6 +5,7 @@ import {
 import { createServiceFactory } from '@backstage/backend-plugin-api';
 import { ragChatPlugin } from './plugin';
 import { llmServiceRef } from './services/llm/LlmService';
+import { ragServiceRef } from './services/rag/RagService';
 import request from 'supertest';
 
 const mockLlmFactory = createServiceFactory({
@@ -18,8 +19,17 @@ const mockLlmFactory = createServiceFactory({
   }),
 });
 
+const mockRagFactory = createServiceFactory({
+  service: ragServiceRef,
+  deps: {},
+  factory: () => ({
+    indexSource: jest.fn().mockResolvedValue(undefined),
+    retrieve: jest.fn().mockResolvedValue([]),
+  }),
+});
+
 const startBackend = () =>
-  startTestBackend({ features: [ragChatPlugin, mockLlmFactory] });
+  startTestBackend({ features: [ragChatPlugin, mockLlmFactory, mockRagFactory] });
 
 describe('ragChatPlugin', () => {
   it('should list conversations (empty initially)', async () => {
