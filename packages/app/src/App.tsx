@@ -3,6 +3,7 @@ import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import techRadarPlugin from '@backstage-community/plugin-tech-radar/alpha';
 import homePlugin from '@backstage/plugin-home/alpha';
 import scaffolderPlugin from '@backstage/plugin-scaffolder/alpha';
+import ragChatPlugin from '@internal/backstage-plugin-rag-chat';
 import { navModule } from './modules/nav';
 import { githubAuthApiRef } from '@backstage/core-plugin-api';
 import { SignInPageBlueprint } from '@backstage/plugin-app-react';
@@ -44,6 +45,7 @@ export default createApp({
     techRadarPlugin,
     homePlugin,
     scaffolderPlugin,
+    ragChatPlugin,
     navModule,
     techDocsReportIssueAddonModule,
     createFrontendModule({

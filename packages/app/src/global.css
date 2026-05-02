@@ -1,0 +1,4 @@
+/* Hide the plugin header toolbar area on all Backstage page headers */
+[class*="bui-PluginHeaderToolbar"] {
+  display: none;
+}
