@@ -19,8 +19,9 @@ import SettingsIcon from '@material-ui/icons/Settings';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ChatSidebar } from './ChatSidebar';
-import { SettingsPanel } from './SettingsPanel';
-import { Conversation, Message } from './types';
+import { SettingsPanel, SettingsState } from './SettingsPanel';
+import { Conversation, Message, RagChatModel, RagChatSource } from './types';
+import { ragChatConfigApiRef } from '../../api';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -117,12 +118,35 @@ interface ChatUIState {
 export const ChatInterface = (): React.ReactElement => {
   const classes = useStyles();
   const identityApi = useApi(identityApiRef);
+  const ragChatConfigApi = useApi(ragChatConfigApiRef);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [userProfile, setUserProfile] = useState<{ displayName?: string; picture?: string }>({});
+  const [models, setModels] = useState<RagChatModel[]>([]);
+  const [sources, setSources] = useState<RagChatSource[]>([]);
+  const [activeSettings, setActiveSettings] = useState<SettingsState | null>(null);
 
   useEffect(() => {
     identityApi.getProfileInfo().then(profile => setUserProfile(profile));
   }, [identityApi]);
+
+  useEffect(() => {
+    const config = ragChatConfigApi.getConfig();
+    setModels(config.models);
+    setSources(config.sources);
+    // Load persisted settings or initialise from config defaults
+    const saved = localStorage.getItem('chatSettings');
+    if (saved) {
+      setActiveSettings(JSON.parse(saved));
+    } else {
+      setActiveSettings({
+        soundEnabled: true,
+        autoScroll: true,
+        modelId: config.defaultModelId ?? config.models[0]?.id ?? '',
+        temperature: 0.7,
+        activeSourceIds: config.defaultSourceIds ?? config.sources.map(s => s.id),
+      });
+    }
+  }, [ragChatConfigApi]);
   const [state, setState] = useState<ChatUIState>(() => {
     const saved = localStorage.getItem('chatState');
     return saved
@@ -171,7 +195,7 @@ export const ChatInterface = (): React.ReactElement => {
   const handleNewConversation = () => {
     const newConversation: Conversation = {
       id: `conv_${Date.now()}`,
-      title: `Conversation ${state.conversations.length + 1}`,
+      title: 'New Conversation',
       messages: [],
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -192,7 +216,7 @@ export const ChatInterface = (): React.ReactElement => {
       return;
     }
 
-    // Add user message
+    // Add user message and set title from first message if still default
     const userMessage: Message = {
       id: `msg_${Date.now()}_user`,
       content,
@@ -202,23 +226,32 @@ export const ChatInterface = (): React.ReactElement => {
 
     setState(prev => ({
       ...prev,
-      conversations: prev.conversations.map(conv =>
-        conv.id === prev.currentConversationId
-          ? {
-              ...conv,
-              messages: [...conv.messages, userMessage],
-              updatedAt: new Date(),
-            }
-          : conv,
-      ),
+      conversations: prev.conversations.map(conv => {
+        if (conv.id !== prev.currentConversationId) return conv;
+        const isFirstMessage = conv.messages.length === 0;
+        return {
+          ...conv,
+          title: isFirstMessage
+            ? content.trim().slice(0, 40) + (content.trim().length > 40 ? '…' : '')
+            : conv.title,
+          messages: [...conv.messages, userMessage],
+          updatedAt: new Date(),
+        };
+      }),
       loading: true,
     }));
 
     // Simulate assistant response
     setTimeout(() => {
+      const userDefinedModels: RagChatModel[] = (() => { try { return JSON.parse(localStorage.getItem('ragChat.userModels') ?? '[]'); } catch { return []; } })();
+      const userDefinedSources: RagChatSource[] = (() => { try { return JSON.parse(localStorage.getItem('ragChat.userSources') ?? '[]'); } catch { return []; } })();
+      const allModels = [...models, ...userDefinedModels];
+      const allSources = [...sources, ...userDefinedSources];
+      const activeModel = allModels.find(m => m.id === activeSettings?.modelId);
+      const activeSources = allSources.filter(s => activeSettings?.activeSourceIds.includes(s.id));
       const assistantMessage: Message = {
         id: `msg_${Date.now()}_assistant`,
-        content: generateMockResponse(content),
+        content: generateMockResponse(content, activeModel, activeSources),
         sender: 'assistant',
         timestamp: new Date(),
       };
@@ -355,6 +388,9 @@ export const ChatInterface = (): React.ReactElement => {
         <SettingsPanel
           open={state.showSettings}
           onClose={handleSettingsClose}
+          onSave={settings => setActiveSettings(settings)}
+          configModels={models}
+          configSources={sources}
         />
 
         {/* Snackbar */}
@@ -377,13 +413,15 @@ export const ChatInterface = (): React.ReactElement => {
 };
 
 // Mock response generator
-function generateMockResponse(input: string): string {
+function generateMockResponse(input: string, model?: RagChatModel, sources?: RagChatSource[]): string {
+  const modelLabel = model ? `[${model.name}]` : '';
+  const sourceLabel = sources?.length ? ` (sources: ${sources.map(s => s.name).join(', ')})` : '';
   const responses = [
-    'That\'s an interesting question. Let me help you with that.',
-    `I understand what you're asking. Here's what I can help you with: ${input.substring(0, 20)}...`,
-    'Great! I\'m analyzing your request now.',
-    `Based on your input about "${input.substring(0, 15)}", I can provide insights.`,
-    'I see. That\'s a relevant topic. Let me provide more context.',
+    `${modelLabel} That's an interesting question. Let me help you with that.${sourceLabel}`,
+    `${modelLabel} I understand what you're asking. Here's what I can help you with: ${input.substring(0, 20)}...${sourceLabel}`,
+    `${modelLabel} Great! I'm analyzing your request now.${sourceLabel}`,
+    `${modelLabel} Based on your input about "${input.substring(0, 15)}", I can provide insights.${sourceLabel}`,
+    `${modelLabel} I see. That's a relevant topic. Let me provide more context.${sourceLabel}`,
   ];
   return responses[Math.floor(Math.random() * responses.length)];
 }

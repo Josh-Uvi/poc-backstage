@@ -18,3 +18,27 @@ export interface ChatUIState {
   currentConversationId: string | null;
   showSettings: boolean;
 }
+
+export interface RagChatModel {
+  id: string;
+  name: string;
+  provider: 'openai' | 'anthropic' | 'google' | 'custom';
+  apiBaseUrl?: string;
+  apiToken?: string;
+  userDefined?: boolean;
+}
+
+export interface RagChatSource {
+  id: string;
+  name: string;
+  type: 'catalog' | 'techdocs' | 'custom';
+  description?: string;
+  userDefined?: boolean;
+}
+
+export interface RagChatConfig {
+  models: RagChatModel[];
+  sources: RagChatSource[];
+  defaultModelId?: string;
+  defaultSourceIds?: string[];
+}

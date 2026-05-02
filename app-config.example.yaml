@@ -35,6 +35,37 @@ integrations:
     - host: github.com
       token:
 
+ragChat:
+  defaultModelId: gpt-4
+  defaultSourceIds:
+    - catalog
+    - techdocs
+  models:
+    - id: gpt-4
+      name: GPT-4
+      provider: openai
+      apiBaseUrl: https://api.openai.com/v1
+      # apiToken: ${OPENAI_API_TOKEN}
+    - id: claude-3-opus
+      name: Claude 3 Opus
+      provider: anthropic
+      apiBaseUrl: https://api.anthropic.com/v1
+      # apiToken: ${ANTHROPIC_API_TOKEN}
+    - id: gemini-pro
+      name: Gemini Pro
+      provider: google
+      apiBaseUrl: https://generativelanguage.googleapis.com/v1
+      # apiToken: ${GOOGLE_API_TOKEN}
+  sources:
+    - id: catalog
+      name: Software Catalog
+      type: catalog
+      description: Query entities from the Backstage software catalog
+    - id: techdocs
+      name: TechDocs
+      type: techdocs
+      description: Query documentation from TechDocs
+
 techdocs:
   builder: 'local'
   publisher:
