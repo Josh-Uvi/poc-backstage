@@ -3,13 +3,8 @@ import {
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
 import { createRouter } from './router';
-import { todoListServiceRef } from './services/TodoListService';
+import { conversationServiceRef } from './services/ConversationService';
 
-/**
- * ragChatPlugin backend plugin
- *
- * @public
- */
 export const ragChatPlugin = createBackendPlugin({
   pluginId: 'rag-chat',
   register(env) {
@@ -17,15 +12,16 @@ export const ragChatPlugin = createBackendPlugin({
       deps: {
         httpAuth: coreServices.httpAuth,
         httpRouter: coreServices.httpRouter,
-        todoList: todoListServiceRef,
+        conversations: conversationServiceRef,
       },
-      async init({ httpAuth, httpRouter, todoList }) {
+      async init({ httpAuth, httpRouter, conversations }) {
         httpRouter.use(
-          await createRouter({
-            httpAuth,
-            todoList,
-          }),
+          await createRouter({ httpAuth, conversations }),
         );
+        httpRouter.addAuthPolicy({
+          path: '/health',
+          allow: 'unauthenticated',
+        });
       },
     });
   },

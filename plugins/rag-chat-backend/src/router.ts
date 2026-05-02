@@ -1,51 +1,166 @@
 import { HttpAuthService } from '@backstage/backend-plugin-api';
-import { InputError } from '@backstage/errors';
+import { InputError, NotFoundError } from '@backstage/errors';
 import { z } from 'zod/v3';
 import express from 'express';
 import Router from 'express-promise-router';
-import { todoListServiceRef } from './services/TodoListService';
+import { IConversationService } from './services/ConversationService';
+
+const chatSchema = z.object({
+  message: z.string().min(1),
+  modelId: z.string().min(1),
+  sourceIds: z.array(z.string()).optional().default([]),
+  conversationId: z.string().optional(),
+  temperature: z.number().min(0).max(1).optional().default(0.7),
+});
+
+const upsertConversationSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  messages: z
+    .array(
+      z.object({
+        id: z.string(),
+        role: z.enum(['user', 'assistant']),
+        content: z.string(),
+        timestamp: z.string(),
+      }),
+    )
+    .optional(),
+});
 
 export async function createRouter({
   httpAuth,
-  todoList,
+  conversations,
 }: {
   httpAuth: HttpAuthService;
-  todoList: typeof todoListServiceRef.T;
+  conversations: IConversationService;
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
 
-  // TEMPLATE NOTE:
-  // Zod is a powerful library for data validation and recommended in particular
-  // for user-defined schemas. In this case we use it for input validation too.
-  //
-  // If you want to define a schema for your API we recommend using Backstage's
-  // OpenAPI tooling: https://backstage.io/docs/next/openapi/01-getting-started
-  const todoSchema = z.object({
-    title: z.string(),
-    entityRef: z.string().optional(),
-  });
+  /**
+   * POST /chat
+   * Accepts { message, modelId, sourceIds, conversationId, temperature }
+   * Returns a single assistant response (streaming can be added later).
+   */
+  router.post('/chat', async (req, res) => {
+    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const userRef = credentials.principal.userEntityRef;
 
-  router.post('/todos', async (req, res) => {
-    const parsed = todoSchema.safeParse(req.body);
+    const parsed = chatSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new InputError(parsed.error.toString());
     }
 
-    const result = await todoList.createTodo(parsed.data, {
-      credentials: await httpAuth.credentials(req, { allow: ['user'] }),
+    const { message, modelId, sourceIds, conversationId } =
+      parsed.data;
+
+    // Resolve or create the conversation
+    let convId = conversationId;
+    if (!convId) {
+      const newConv = await conversations.upsertConversation(
+        { title: message.slice(0, 40) + (message.length > 40 ? '…' : '') },
+        userRef,
+      );
+      convId = newConv.id;
+    }
+
+    // Append the user message
+    const userMessageId = `msg_${Date.now()}_user`;
+    const existingConv = (await conversations.listConversations(userRef)).find(
+      c => c.id === convId,
+    );
+    if (!existingConv) {
+      throw new NotFoundError(`Conversation '${convId}' not found`);
+    }
+
+    const userMessage = {
+      id: userMessageId,
+      role: 'user' as const,
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
+
+    // TODO: Replace with real LLM call using modelId, sourceIds, temperature
+    const assistantContent = generateMockResponse(message, modelId, sourceIds);
+
+    const assistantMessage = {
+      id: `msg_${Date.now()}_assistant`,
+      role: 'assistant' as const,
+      content: assistantContent,
+      timestamp: new Date().toISOString(),
+    };
+
+    const updatedMessages = [
+      ...existingConv.messages,
+      userMessage,
+      assistantMessage,
+    ];
+
+    await conversations.upsertConversation(
+      { id: convId, title: existingConv.title, messages: updatedMessages },
+      userRef,
+    );
+
+    res.json({
+      conversationId: convId,
+      message: assistantMessage,
     });
-
-    res.status(201).json(result);
   });
 
-  router.get('/todos', async (_req, res) => {
-    res.json(await todoList.listTodos());
+  /**
+   * GET /conversations
+   * Returns all conversations for the authenticated user.
+   */
+  router.get('/conversations', async (req, res) => {
+    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const userRef = credentials.principal.userEntityRef;
+    const items = await conversations.listConversations(userRef);
+    res.json({ items });
   });
 
-  router.get('/todos/:id', async (req, res) => {
-    res.json(await todoList.getTodo({ id: req.params.id }));
+  /**
+   * POST /conversations
+   * Creates or updates a conversation for the authenticated user.
+   */
+  router.post('/conversations', async (req, res) => {
+    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const userRef = credentials.principal.userEntityRef;
+
+    const parsed = upsertConversationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new InputError(parsed.error.toString());
+    }
+
+    const conversation = await conversations.upsertConversation(
+      parsed.data,
+      userRef,
+    );
+
+    res.status(parsed.data.id ? 200 : 201).json(conversation);
+  });
+
+  /**
+   * DELETE /conversations/:id
+   * Deletes a conversation owned by the authenticated user.
+   */
+  router.delete('/conversations/:id', async (req, res) => {
+    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const userRef = credentials.principal.userEntityRef;
+    await conversations.deleteConversation(req.params.id, userRef);
+    res.status(204).send();
   });
 
   return router;
+}
+
+function generateMockResponse(
+  message: string,
+  modelId: string,
+  sourceIds: string[],
+): string {
+  const sourceLabel = sourceIds.length
+    ? ` (queried: ${sourceIds.join(', ')})`
+    : '';
+  return `[${modelId}] Received: "${message.slice(0, 60)}"${sourceLabel}. Real LLM integration pending.`;
 }

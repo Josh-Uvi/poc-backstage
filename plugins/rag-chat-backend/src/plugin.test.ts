@@ -2,128 +2,97 @@ import {
   mockCredentials,
   startTestBackend,
 } from '@backstage/backend-test-utils';
-import { createServiceFactory } from '@backstage/backend-plugin-api';
-import { todoListServiceRef } from './services/TodoListService';
 import { ragChatPlugin } from './plugin';
 import request from 'supertest';
-import { catalogServiceMock } from '@backstage/plugin-catalog-node/testUtils';
-import {
-  ConflictError,
-  AuthenticationError,
-  NotAllowedError,
-} from '@backstage/errors';
 
-// TEMPLATE NOTE:
-// Plugin tests are integration tests for your plugin, ensuring that all pieces
-// work together end-to-end. You can still mock injected backend services
-// however, just like anyone who installs your plugin might replace the
-// services with their own implementations.
-describe('plugin', () => {
-  it('should create and read TODO items', async () => {
-    const { server } = await startTestBackend({
-      features: [ragChatPlugin],
-    });
+describe('ragChatPlugin', () => {
+  it('should list conversations (empty initially)', async () => {
+    const { server } = await startTestBackend({ features: [ragChatPlugin] });
 
-    await request(server).get('/api/rag-chat/todos').expect(200, {
-      items: [],
-    });
-
-    const createRes = await request(server)
-      .post('/api/rag-chat/todos')
-      .send({ title: 'My Todo' });
-
-    expect(createRes.status).toBe(201);
-    expect(createRes.body).toEqual({
-      id: expect.any(String),
-      title: 'My Todo',
-      createdBy: mockCredentials.user().principal.userEntityRef,
-      createdAt: expect.any(String),
-    });
-
-    const createdTodoItem = createRes.body;
-
-    await request(server)
-      .get('/api/rag-chat/todos')
-      .expect(200, {
-        items: [createdTodoItem],
-      });
-
-    await request(server)
-      .get(`/api/rag-chat/todos/${createdTodoItem.id}`)
-      .expect(200, createdTodoItem);
+    const res = await request(server).get('/api/rag-chat/conversations');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [] });
   });
 
-  it('should create TODO item with catalog information', async () => {
-    const { server } = await startTestBackend({
-      features: [
-        ragChatPlugin,
-        catalogServiceMock.factory({
-          entities: [
-            {
-              apiVersion: 'backstage.io/v1alpha1',
-              kind: 'Component',
-              metadata: {
-                name: 'my-component',
-                namespace: 'default',
-                title: 'My Component',
-              },
-              spec: {
-                type: 'service',
-                owner: 'me',
-              },
-            },
-          ],
-        }),
-      ],
-    });
+  it('should create and retrieve a conversation', async () => {
+    const { server } = await startTestBackend({ features: [ragChatPlugin] });
 
     const createRes = await request(server)
-      .post('/api/rag-chat/todos')
-      .send({ title: 'My Todo', entityRef: 'component:default/my-component' });
+      .post('/api/rag-chat/conversations')
+      .send({ title: 'My first conversation' });
 
     expect(createRes.status).toBe(201);
-    expect(createRes.body).toEqual({
-      id: expect.any(String),
-      title: '[My Component] My Todo',
-      createdBy: mockCredentials.user().principal.userEntityRef,
-      createdAt: expect.any(String),
-    });
-  });
-
-  it('should forward errors from the TodoListService', async () => {
-    const { server } = await startTestBackend({
-      features: [
-        ragChatPlugin,
-        createServiceFactory({
-          service: todoListServiceRef,
-          deps: {},
-          factory: () => ({
-            createTodo: jest.fn().mockRejectedValue(new ConflictError()),
-            listTodos: jest.fn().mockRejectedValue(new AuthenticationError()),
-            getTodo: jest.fn().mockRejectedValue(new NotAllowedError()),
-          }),
-        })
-      ],
-    });
-
-    const createRes = await request(server)
-      .post('/api/rag-chat/todos')
-      .send({ title: 'My Todo', entityRef: 'component:default/my-component' });
-    expect(createRes.status).toBe(409);
     expect(createRes.body).toMatchObject({
-      error: { name: 'ConflictError' },
+      id: expect.any(String),
+      title: 'My first conversation',
+      userRef: mockCredentials.user().principal.userEntityRef,
+      messages: [],
     });
 
-    const listRes = await request(server).get('/api/rag-chat/todos');
-    expect(listRes.status).toBe(401);
-    expect(listRes.body).toMatchObject({
-      error: { name: 'AuthenticationError' },
+    const listRes = await request(server).get('/api/rag-chat/conversations');
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.items).toHaveLength(1);
+    expect(listRes.body.items[0].title).toBe('My first conversation');
+  });
+
+  it('should send a chat message and get a response', async () => {
+    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+
+    // Create a conversation first
+    const convRes = await request(server)
+      .post('/api/rag-chat/conversations')
+      .send({ title: 'Chat test' });
+    const convId = convRes.body.id;
+
+    const chatRes = await request(server).post('/api/rag-chat/chat').send({
+      message: 'What is Backstage?',
+      modelId: 'gpt-4',
+      conversationId: convId,
+      sourceIds: ['catalog'],
     });
 
-    const getRes = await request(server).get('/api/rag-chat/todos/123');
-    expect(getRes.status).toBe(403);
-    expect(getRes.body).toMatchObject({
-      error: { name: 'NotAllowedError' },
+    expect(chatRes.status).toBe(200);
+    expect(chatRes.body).toMatchObject({
+      conversationId: convId,
+      message: expect.objectContaining({
+        role: 'assistant',
+        content: expect.stringContaining('gpt-4'),
+      }),
     });
+  });
+
+  it('should delete a conversation', async () => {
+    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+
+    const createRes = await request(server)
+      .post('/api/rag-chat/conversations')
+      .send({ title: 'To be deleted' });
+    const convId = createRes.body.id;
+
+    const deleteRes = await request(server).delete(
+      `/api/rag-chat/conversations/${convId}`,
+    );
+    expect(deleteRes.status).toBe(204);
+
+    const listRes = await request(server).get('/api/rag-chat/conversations');
+    expect(listRes.body.items).toHaveLength(0);
+  });
+
+  it('should return 404 when deleting a non-existent conversation', async () => {
+    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+
+    const res = await request(server).delete(
+      '/api/rag-chat/conversations/does-not-exist',
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('should return 400 for invalid chat input', async () => {
+    const { server } = await startTestBackend({ features: [ragChatPlugin] });
+
+    const res = await request(server)
+      .post('/api/rag-chat/chat')
+      .send({ message: '' });
+    expect(res.status).toBe(400);
   });
 });
