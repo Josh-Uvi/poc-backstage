@@ -3,7 +3,9 @@ import {
   coreServices,
   createServiceFactory,
   createServiceRef,
+  DatabaseService,
   LoggerService,
+  resolvePackagePath,
 } from '@backstage/backend-plugin-api';
 import { NotFoundError } from '@backstage/errors';
 
@@ -31,26 +33,71 @@ export interface UpsertConversationInput {
 
 export interface IConversationService {
   listConversations(userRef: string): Promise<Conversation[]>;
-  upsertConversation(input: UpsertConversationInput, userRef: string): Promise<Conversation>;
+  upsertConversation(
+    input: UpsertConversationInput,
+    userRef: string,
+  ): Promise<Conversation>;
   deleteConversation(id: string, userRef: string): Promise<void>;
 }
 
-export class ConversationService implements IConversationService {
-  readonly #logger: LoggerService;
-  readonly #store = new Map<string, Conversation>();
+// ── Row types ─────────────────────────────────────────────────────────────────
 
-  static create(options: { logger: LoggerService }) {
-    return new ConversationService(options.logger);
+interface ConversationRow {
+  id: string;
+  user_ref: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MessageRow {
+  id: string;
+  conversation_id: string;
+  role: string;
+  content: string;
+  timestamp: string;
+}
+
+// ── Database implementation ───────────────────────────────────────────────────
+
+export class ConversationService implements IConversationService {
+  readonly #db: Awaited<ReturnType<DatabaseService['getClient']>>;
+  readonly #logger: LoggerService;
+
+  static async create(options: {
+    database: DatabaseService;
+    logger: LoggerService;
+  }): Promise<ConversationService> {
+    const client = await options.database.getClient();
+
+    // Run migrations from the migrations directory
+    const migrationsDir = resolvePackagePath(
+      '@internal/backstage-plugin-rag-chat-backend',
+      'src/services/migrations',
+    );
+
+    await client.migrate.latest({
+      directory: migrationsDir,
+      loadExtensions: ['.ts', '.js'],
+    });
+
+    return new ConversationService(client, options.logger);
   }
 
-  private constructor(logger: LoggerService) {
+  private constructor(
+    db: Awaited<ReturnType<DatabaseService['getClient']>>,
+    logger: LoggerService,
+  ) {
+    this.#db = db;
     this.#logger = logger;
   }
 
   async listConversations(userRef: string): Promise<Conversation[]> {
-    return Array.from(this.#store.values())
-      .filter(c => c.userRef === userRef)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const rows = await this.#db<ConversationRow>('rag_chat_conversations')
+      .where({ user_ref: userRef })
+      .orderBy('updated_at', 'desc');
+
+    return Promise.all(rows.map(row => this.#hydrateConversation(row)));
   }
 
   async upsertConversation(
@@ -59,42 +106,103 @@ export class ConversationService implements IConversationService {
   ): Promise<Conversation> {
     const now = new Date().toISOString();
     const id = input.id ?? crypto.randomUUID();
-    const existing = this.#store.get(id);
 
-    if (existing && existing.userRef !== userRef) {
+    const existing = await this.#db<ConversationRow>('rag_chat_conversations')
+      .where({ id })
+      .first();
+
+    if (existing && existing.user_ref !== userRef) {
       throw new NotFoundError(`Conversation '${id}' not found`);
     }
 
-    const conversation: Conversation = {
-      id,
-      title: input.title,
-      userRef,
-      messages: input.messages ?? existing?.messages ?? [],
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    };
+    await this.#db<ConversationRow>('rag_chat_conversations')
+      .insert({
+        id,
+        user_ref: userRef,
+        title: input.title,
+        created_at: existing?.created_at ?? now,
+        updated_at: now,
+      })
+      .onConflict('id')
+      .merge(['title', 'updated_at']);
 
-    this.#store.set(id, conversation);
+    // Replace messages if provided
+    if (input.messages !== undefined) {
+      await this.#db<MessageRow>('rag_chat_messages')
+        .where({ conversation_id: id })
+        .delete();
+
+      if (input.messages.length) {
+        await this.#db<MessageRow>('rag_chat_messages').insert(
+          input.messages.map(m => ({
+            id: m.id,
+            conversation_id: id,
+            role: m.role,
+            content: m.content,
+            timestamp: m.timestamp,
+          })),
+        );
+      }
+    }
+
     this.#logger.info('Upserted conversation', { id, userRef });
-    return conversation;
+
+    const row = await this.#db<ConversationRow>('rag_chat_conversations')
+      .where({ id })
+      .first();
+
+    return this.#hydrateConversation(row!);
   }
 
   async deleteConversation(id: string, userRef: string): Promise<void> {
-    const existing = this.#store.get(id);
-    if (!existing || existing.userRef !== userRef) {
+    const existing = await this.#db<ConversationRow>('rag_chat_conversations')
+      .where({ id })
+      .first();
+
+    if (!existing || existing.user_ref !== userRef) {
       throw new NotFoundError(`Conversation '${id}' not found`);
     }
-    this.#store.delete(id);
+
+    // Messages are deleted via CASCADE
+    await this.#db<ConversationRow>('rag_chat_conversations')
+      .where({ id })
+      .delete();
+
     this.#logger.info('Deleted conversation', { id, userRef });
   }
+
+  async #hydrateConversation(row: ConversationRow): Promise<Conversation> {
+    const messages = await this.#db<MessageRow>('rag_chat_messages')
+      .where({ conversation_id: row.id })
+      .orderBy('timestamp', 'asc');
+
+    return {
+      id: row.id,
+      title: row.title,
+      userRef: row.user_ref,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      messages: messages.map(m => ({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        timestamp: m.timestamp,
+      })),
+    };
+  }
 }
+
+// ── Service ref ───────────────────────────────────────────────────────────────
 
 export const conversationServiceRef = createServiceRef<IConversationService>({
   id: 'rag-chat.conversation',
   defaultFactory: async service =>
     createServiceFactory({
       service,
-      deps: { logger: coreServices.logger },
+      deps: {
+        database: coreServices.database,
+        logger: coreServices.logger,
+      },
       async factory(deps) {
         return ConversationService.create(deps);
       },
