@@ -7,7 +7,6 @@ import {
   Paper,
   InputAdornment,
   Tooltip,
-  Typography,
   Chip,
 } from '@material-ui/core';
 import SendIcon from '@material-ui/icons/Send';
@@ -51,7 +50,7 @@ const useStyles = makeStyles(theme => ({
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
-  onAttachFile?: (file: File) => void;
+  onAttachFile?: (file: File) => Promise<void> | void;
   disabled?: boolean;
 }
 
@@ -63,14 +62,14 @@ export const ChatInput = ({
   const classes = useStyles();
   const [input, setInput] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = () => {
-    if (input.trim() || attachedFile) {
+    if (input.trim()) {
       onSendMessage(input);
       setInput('');
-      setAttachedFile(null);
       inputRef.current?.focus();
     }
   };
@@ -86,9 +85,15 @@ export const ChatInput = ({
     const file = e.target.files?.[0];
     if (file) {
       setAttachedFile(file);
-      onAttachFile?.(file);
       // Reset so the same file can be re-selected
       e.target.value = '';
+
+      setUploading(true);
+      Promise.resolve(onAttachFile?.(file))
+        .finally(() => {
+          setUploading(false);
+          setAttachedFile(null);
+        });
     }
   };
 
@@ -96,9 +101,9 @@ export const ChatInput = ({
     <Paper className={classes.inputContainer} elevation={0} square>
       {attachedFile && (
         <Chip
-          label={attachedFile.name}
-          onDelete={() => setAttachedFile(null)}
-          deleteIcon={<CloseIcon />}
+          label={uploading ? `Uploading ${attachedFile.name}...` : attachedFile.name}
+          onDelete={uploading ? undefined : () => setAttachedFile(null)}
+          deleteIcon={uploading ? undefined : <CloseIcon />}
           size="small"
           className={classes.fileChip}
         />
@@ -133,7 +138,7 @@ export const ChatInput = ({
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          disabled={disabled}
+          disabled={disabled || uploading}
           className={classes.textField}
           variant="outlined"
           size="small"
@@ -142,7 +147,7 @@ export const ChatInput = ({
               <InputAdornment position="end">
                 <IconButton
                   onClick={handleSend}
-                  disabled={(!input.trim() && !attachedFile) || disabled}
+                  disabled={!input.trim() || disabled || uploading}
                   className={classes.sendButton}
                   edge="end"
                   size="small"

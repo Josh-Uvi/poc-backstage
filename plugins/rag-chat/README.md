@@ -107,12 +107,12 @@ ragChat:
   - Store embeddings in a vector store (options: pgvector via existing Postgres, in-memory for dev, or external e.g. Pinecone/Weaviate)
   - At query time: embed the user message, retrieve top-k relevant chunks, inject into the LLM prompt as context
 
-- [ ] **Conversation persistence (database)**
+- [x] **Conversation persistence (database)**
   - Use Backstage's `DatabaseService` (Knex) to store conversations and messages per user
   - Schema: `rag_chat_conversations(id, user_ref, title, created_at, updated_at)` and `rag_chat_messages(id, conversation_id, role, content, timestamp)`
   - Migrate away from `localStorage` as the source of truth — use it only as a cache
 
-- [ ] **Streaming responses**
+- [x] **Streaming responses**
   - Implement SSE (`text/event-stream`) or chunked transfer on `POST /api/rag-chat/chat`
   - Frontend consumes the stream and appends tokens to the message bubble in real time
 

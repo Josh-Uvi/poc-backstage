@@ -20,6 +20,7 @@ interface ModelConfig {
 
 export interface ILlmService {
   chat(modelId: string, request: LlmRequest): Promise<LlmResponse>;
+  stream(modelId: string, request: LlmRequest): AsyncIterable<string>;
 }
 
 export class LlmService implements ILlmService {
@@ -88,6 +89,18 @@ export class LlmService implements ILlmService {
     }
     this.#logger.info(`LLM chat request`, { modelId, messageCount: request.messages.length });
     return provider.chat(request);
+  }
+
+  async *stream(modelId: string, request: LlmRequest): AsyncIterable<string> {
+    const provider = this.#providers.get(modelId);
+    if (!provider) {
+      throw new InputError(
+        `No LLM provider configured for modelId '${modelId}'. ` +
+        `Check ragChat.models in app-config.yaml.`,
+      );
+    }
+    this.#logger.info(`LLM stream request`, { modelId, messageCount: request.messages.length });
+    yield* provider.stream(request);
   }
 }
 

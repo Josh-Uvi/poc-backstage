@@ -10,22 +10,31 @@ export class GoogleProvider implements LlmProvider {
     this.#modelId = options.modelId;
   }
 
-  async chat(request: LlmRequest): Promise<LlmResponse> {
+  #buildChat(request: LlmRequest) {
     const model = this.#client.getGenerativeModel({
       model: this.#modelId,
       generationConfig: { temperature: request.temperature },
     });
-
-    // Separate system prompt (assistant messages) from the conversation
     const history = request.messages.slice(0, -1).map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }));
-
     const lastMessage = request.messages[request.messages.length - 1];
-    const chat = model.startChat({ history });
+    return { chat: model.startChat({ history }), lastMessage };
+  }
+
+  async chat(request: LlmRequest): Promise<LlmResponse> {
+    const { chat, lastMessage } = this.#buildChat(request);
     const result = await chat.sendMessage(lastMessage?.content ?? '');
-    const content = result.response.text();
-    return { content, modelId: this.#modelId };
+    return { content: result.response.text(), modelId: this.#modelId };
+  }
+
+  async *stream(request: LlmRequest): AsyncIterable<string> {
+    const { chat, lastMessage } = this.#buildChat(request);
+    const result = await chat.sendMessageStream(lastMessage?.content ?? '');
+    for await (const chunk of result.stream) {
+      const token = chunk.text();
+      if (token) yield token;
+    }
   }
 }

@@ -18,7 +18,7 @@ import { InMemoryVectorStore, VectorStore, VectorEntry } from './VectorStore';
 import { CatalogRagSource } from './CatalogRagSource';
 import { TechDocsRagSource } from './TechDocsRagSource';
 import { CustomRagSource, CustomSourceConfig } from './CustomRagSource';
-import { Chunk } from './Chunker';
+import { chunkText, Chunk } from './Chunker';
 
 export interface RetrievedContext {
   text: string;
@@ -27,6 +27,11 @@ export interface RetrievedContext {
 
 export interface IRagService {
   indexSource(sourceId: string, credentials: BackstageCredentials): Promise<void>;
+  indexDocument(options: {
+    sourceId: string;
+    documentText: string;
+    metadata: Record<string, string>;
+  }): Promise<void>;
   retrieve(query: string, sourceIds: string[], topK?: number): Promise<RetrievedContext[]>;
 }
 
@@ -154,6 +159,28 @@ export class RagService implements IRagService {
 
     if (!chunks.length) {
       this.#logger.info(`No chunks produced for source '${sourceId}'`);
+      return;
+    }
+
+    await this.#indexChunks(sourceId, chunks);
+  }
+
+  async indexDocument(options: {
+    sourceId: string;
+    documentText: string;
+    metadata: Record<string, string>;
+  }): Promise<void> {
+    const chunks = chunkText(options.documentText, options.metadata);
+    if (!chunks.length) {
+      this.#logger.info(`No chunks produced for uploaded source '${options.sourceId}'`);
+      return;
+    }
+
+    await this.#indexChunks(options.sourceId, chunks);
+  }
+
+  async #indexChunks(sourceId: string, chunks: Chunk[]): Promise<void> {
+    if (!chunks.length) {
       return;
     }
 

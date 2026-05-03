@@ -16,6 +16,15 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
+export interface ConversationSourceRef {
+  id: string;
+  conversationId: string;
+  sourceId: string;
+  fileName: string;
+  contentType?: string;
+  createdAt: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -33,6 +42,20 @@ export interface UpsertConversationInput {
 
 export interface IConversationService {
   listConversations(userRef: string): Promise<Conversation[]>;
+  listConversationSources(
+    conversationId: string,
+    userRef: string,
+  ): Promise<ConversationSourceRef[]>;
+  addConversationSource(
+    input: {
+      id?: string;
+      conversationId: string;
+      sourceId: string;
+      fileName: string;
+      contentType?: string;
+    },
+    userRef: string,
+  ): Promise<ConversationSourceRef>;
   upsertConversation(
     input: UpsertConversationInput,
     userRef: string,
@@ -56,6 +79,15 @@ interface MessageRow {
   role: string;
   content: string;
   timestamp: string;
+}
+
+interface ConversationSourceRow {
+  id: string;
+  conversation_id: string;
+  source_id: string;
+  file_name: string;
+  content_type: string | null;
+  created_at: string;
 }
 
 // ── Database implementation ───────────────────────────────────────────────────
@@ -98,6 +130,60 @@ export class ConversationService implements IConversationService {
       .orderBy('updated_at', 'desc');
 
     return Promise.all(rows.map(row => this.#hydrateConversation(row)));
+  }
+
+  async listConversationSources(
+    conversationId: string,
+    userRef: string,
+  ): Promise<ConversationSourceRef[]> {
+    await this.#requireOwnedConversation(conversationId, userRef);
+
+    const rows = await this.#db<ConversationSourceRow>('rag_chat_conversation_sources')
+      .where({ conversation_id: conversationId })
+      .orderBy('created_at', 'asc');
+
+    return rows.map(row => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      sourceId: row.source_id,
+      fileName: row.file_name,
+      contentType: row.content_type ?? undefined,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async addConversationSource(
+    input: {
+      id?: string;
+      conversationId: string;
+      sourceId: string;
+      fileName: string;
+      contentType?: string;
+    },
+    userRef: string,
+  ): Promise<ConversationSourceRef> {
+    await this.#requireOwnedConversation(input.conversationId, userRef);
+
+    const id = input.id ?? crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    await this.#db<ConversationSourceRow>('rag_chat_conversation_sources').insert({
+      id,
+      conversation_id: input.conversationId,
+      source_id: input.sourceId,
+      file_name: input.fileName,
+      content_type: input.contentType ?? null,
+      created_at: now,
+    });
+
+    return {
+      id,
+      conversationId: input.conversationId,
+      sourceId: input.sourceId,
+      fileName: input.fileName,
+      contentType: input.contentType,
+      createdAt: now,
+    };
   }
 
   async upsertConversation(
@@ -189,6 +275,21 @@ export class ConversationService implements IConversationService {
         timestamp: m.timestamp,
       })),
     };
+  }
+
+  async #requireOwnedConversation(
+    conversationId: string,
+    userRef: string,
+  ): Promise<ConversationRow> {
+    const row = await this.#db<ConversationRow>('rag_chat_conversations')
+      .where({ id: conversationId })
+      .first();
+
+    if (!row || row.user_ref !== userRef) {
+      throw new NotFoundError(`Conversation '${conversationId}' not found`);
+    }
+
+    return row;
   }
 }
 

@@ -52,6 +52,19 @@ const useStyles = makeStyles(theme => ({
   timestampUser: {
     textAlign: 'right',
   },
+  cursor: {
+    display: 'inline-block',
+    width: 2,
+    height: '1em',
+    backgroundColor: 'currentColor',
+    marginLeft: 2,
+    verticalAlign: 'text-bottom',
+    animation: '$blink 1s step-end infinite',
+  },
+  '@keyframes blink': {
+    '0%, 100%': { opacity: 1 },
+    '50%': { opacity: 0 },
+  },
 }));
 
 interface ChatMessageProps {
@@ -77,7 +90,10 @@ export const ChatMessage = ({ message, userProfile }: ChatMessageProps): React.R
       </Avatar>
       <Box style={{ maxWidth: '72%' }}>
         <Box className={`${classes.bubble} ${isUser ? classes.userBubble : classes.assistantBubble}`}>
-          <Typography variant="body2">{message.content}</Typography>
+          <Typography variant="body2">
+            {message.content}
+            {message.streaming && <span className={classes.cursor} />}
+          </Typography>
         </Box>
         <Typography
           variant="caption"

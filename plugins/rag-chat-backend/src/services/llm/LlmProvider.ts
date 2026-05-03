@@ -15,4 +15,5 @@ export interface LlmResponse {
 
 export interface LlmProvider {
   chat(request: LlmRequest): Promise<LlmResponse>;
+  stream(request: LlmRequest): AsyncIterable<string>;
 }

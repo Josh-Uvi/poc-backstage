@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { HttpAuthService } from '@backstage/backend-plugin-api';
 import { InputError, NotFoundError } from '@backstage/errors';
 import { z } from 'zod/v3';
@@ -6,6 +7,8 @@ import Router from 'express-promise-router';
 import { IConversationService } from './services/ConversationService';
 import { ILlmService } from './services/llm/LlmService';
 import { IRagService } from './services/rag/RagService';
+import multer from 'multer';
+import { extractTextFromUpload } from './services/rag/FileTextExtractor';
 
 const chatSchema = z.object({
   message: z.string().min(1),
@@ -43,29 +46,22 @@ export async function createRouter({
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+  const uploadSingle: express.RequestHandler = upload.single('file') as
+    unknown as express.RequestHandler;
 
-  /**
-   * POST /chat
-   * Accepts { message, modelId, sourceIds, conversationId, temperature }
-   * Returns a single assistant response (streaming can be added later).
-   */
-  router.post('/chat', async (req, res) => {
-    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
-    const userRef = credentials.principal.userEntityRef;
-
-    const parsed = chatSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new InputError(parsed.error.toString());
-    }
-
-    const { message, modelId, sourceIds, conversationId, temperature } =
-      parsed.data;
-
-    // Resolve or create the conversation
+  const resolveConversation = async (
+    userRef: string,
+    conversationId: string | undefined,
+    fallbackTitle: string,
+  ) => {
     let convId = conversationId;
     if (!convId) {
       const newConv = await conversations.upsertConversation(
-        { title: message.slice(0, 40) + (message.length > 40 ? '…' : '') },
+        { title: fallbackTitle },
         userRef,
       );
       convId = newConv.id;
@@ -78,6 +74,99 @@ export async function createRouter({
       throw new NotFoundError(`Conversation '${convId}' not found`);
     }
 
+    return existingConv;
+  };
+
+  /**
+   * POST /upload
+   * Accepts multipart form-data with fields:
+   *   - file: TXT, PDF, or DOCX file
+   *   - conversationId: target conversation
+   */
+  router.post('/upload', uploadSingle, async (req, res) => {
+    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    const userRef = credentials.principal.userEntityRef;
+
+    const conversationId = typeof req.body?.conversationId === 'string'
+      ? req.body.conversationId
+      : undefined;
+
+    if (!conversationId) {
+      throw new InputError('conversationId is required');
+    }
+
+    if (!req.file) {
+      throw new InputError('file is required');
+    }
+
+    await resolveConversation(userRef, conversationId, 'New Conversation');
+
+    const documentText = await extractTextFromUpload({
+      fileName: req.file.originalname,
+      contentType: req.file.mimetype,
+      buffer: req.file.buffer,
+    });
+
+    if (!documentText.trim()) {
+      throw new InputError(`No extractable text found in '${req.file.originalname}'`);
+    }
+
+    const uploadId = crypto.randomUUID();
+    const sourceId = `upload:${conversationId}:${uploadId}`;
+
+    await rag.indexDocument({
+      sourceId,
+      documentText,
+      metadata: {
+        sourceId,
+        conversationId,
+        fileName: req.file.originalname,
+        contentType: req.file.mimetype,
+        ref: `upload:${req.file.originalname}`,
+        title: req.file.originalname,
+      },
+    });
+
+    const source = await conversations.addConversationSource(
+      {
+        id: uploadId,
+        conversationId,
+        sourceId,
+        fileName: req.file.originalname,
+        contentType: req.file.mimetype,
+      },
+      userRef,
+    );
+
+    res.status(201).json({ source });
+  });
+
+  /**
+   * POST /chat
+   * Accepts { message, modelId, sourceIds, conversationId, temperature }
+   * Streams the assistant response as SSE events:
+   *   data: {"type":"token","token":"..."}
+   *   data: {"type":"done","conversationId":"...","messageId":"..."}
+   *   data: {"type":"error","error":"..."}
+   */
+  router.post('/chat', async (req, res) => {
+    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    const userRef = credentials.principal.userEntityRef;
+
+    const parsed = chatSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new InputError(parsed.error.toString());
+    }
+
+    const { message, modelId, sourceIds, conversationId, temperature } = parsed.data;
+
+    const existingConv = await resolveConversation(
+      userRef,
+      conversationId,
+      message.slice(0, 40) + (message.length > 40 ? '\u2026' : ''),
+    );
+    const convId = existingConv.id;
+
     const userMessage = {
       id: `msg_${Date.now()}_user`,
       role: 'user' as const,
@@ -85,23 +174,26 @@ export async function createRouter({
       timestamp: new Date().toISOString(),
     };
 
-    // Index requested sources (lazy — only indexes if not yet populated)
+    const uploadedSources = await conversations.listConversationSources(convId, userRef);
+    const uploadedSourceIds = uploadedSources.map(source => source.sourceId);
+    const retrievalSourceIds = [...new Set([...sourceIds, ...uploadedSourceIds])];
+
+    // Index requested configured sources (lazy)
     for (const sourceId of sourceIds) {
       await rag.indexSource(sourceId, credentials);
     }
 
     // Retrieve relevant context chunks
-    const contextChunks = sourceIds.length
-      ? await rag.retrieve(message, sourceIds, 5)
+    const contextChunks = retrievalSourceIds.length
+      ? await rag.retrieve(message, retrievalSourceIds, 5)
       : [];
 
-    // Build message history for the LLM
+    // Build LLM message history
     const llmMessages = [
       ...existingConv.messages.map(m => ({ role: m.role, content: m.content })),
       { role: 'user' as const, content: message },
     ];
 
-    // Prepend retrieved context as a system message
     if (contextChunks.length) {
       const contextText = contextChunks
         .map((c, i) => `[${i + 1}] (${c.metadata.ref ?? c.metadata.title ?? c.metadata.sourceId})\n${c.text}`)
@@ -113,35 +205,54 @@ export async function createRouter({
           `Context:\n${contextText}\n\n` +
           `If the context does not contain enough information, say so clearly.`,
       });
-    } else if (sourceIds.length) {
+    } else if (retrievalSourceIds.length) {
       llmMessages.unshift({
         role: 'assistant' as const,
-        content: `You are a helpful Backstage assistant. Answer using knowledge from: ${sourceIds.join(', ')}.`,
+        content:
+          `You are a helpful Backstage assistant. Answer using knowledge from: ${retrievalSourceIds.join(', ')}.`,
       });
     }
 
-    const llmResponse = await llm.chat(modelId, {
-      messages: llmMessages,
-      temperature,
-    });
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
-    const assistantMessage = {
-      id: `msg_${Date.now()}_assistant`,
-      role: 'assistant' as const,
-      content: llmResponse.content,
-      timestamp: new Date().toISOString(),
-    };
+    const sendEvent = (data: object) =>
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    await conversations.upsertConversation(
-      {
-        id: convId,
-        title: existingConv.title,
-        messages: [...existingConv.messages, userMessage, assistantMessage],
-      },
-      userRef,
-    );
+    const assistantMessageId = `msg_${Date.now()}_assistant`;
+    let fullContent = '';
 
-    res.json({ conversationId: convId, message: assistantMessage });
+    try {
+      for await (const token of llm.stream(modelId, { messages: llmMessages, temperature })) {
+        fullContent += token;
+        sendEvent({ type: 'token', token });
+      }
+
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: 'assistant' as const,
+        content: fullContent,
+        timestamp: new Date().toISOString(),
+      };
+
+      await conversations.upsertConversation(
+        {
+          id: convId,
+          title: existingConv.title,
+          messages: [...existingConv.messages, userMessage, assistantMessage],
+        },
+        userRef,
+      );
+
+      sendEvent({ type: 'done', conversationId: convId, messageId: assistantMessageId });
+    } catch (e: any) {
+      sendEvent({ type: 'error', error: e?.message ?? 'Unknown error' });
+    } finally {
+      res.end();
+    }
   });
 
   /**
@@ -149,7 +260,7 @@ export async function createRouter({
    * Returns all conversations for the authenticated user.
    */
   router.get('/conversations', async (req, res) => {
-    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
     const userRef = credentials.principal.userEntityRef;
     const items = await conversations.listConversations(userRef);
     res.json({ items });
@@ -160,7 +271,7 @@ export async function createRouter({
    * Creates or updates a conversation for the authenticated user.
    */
   router.post('/conversations', async (req, res) => {
-    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
     const userRef = credentials.principal.userEntityRef;
 
     const parsed = upsertConversationSchema.safeParse(req.body);
@@ -181,7 +292,7 @@ export async function createRouter({
    * Deletes a conversation owned by the authenticated user.
    */
   router.delete('/conversations/:id', async (req, res) => {
-    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
     const userRef = credentials.principal.userEntityRef;
     await conversations.deleteConversation(req.params.id, userRef);
     res.status(204).send();

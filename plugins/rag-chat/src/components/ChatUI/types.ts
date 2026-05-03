@@ -3,12 +3,23 @@ export interface Message {
   content: string;
   sender: 'user' | 'assistant';
   timestamp: Date;
+  streaming?: boolean;
+}
+
+export interface UploadedSourceRef {
+  id: string;
+  conversationId: string;
+  sourceId: string;
+  fileName: string;
+  contentType?: string;
+  createdAt: Date;
 }
 
 export interface Conversation {
   id: string;
   title: string;
   messages: Message[];
+  sourceRefs?: UploadedSourceRef[];
   createdAt: Date;
   updatedAt: Date;
 }

@@ -13,11 +13,10 @@ export class AnthropicProvider implements LlmProvider {
     this.#modelId = options.modelId;
   }
 
-  async chat(request: LlmRequest): Promise<LlmResponse> {
-    const userMessages = request.messages.filter(m => m.role === 'user');
+  #buildParams(request: LlmRequest) {
     const systemMessages = request.messages.filter(m => m.role === 'assistant');
-
-    const response = await this.#client.messages.create({
+    const userMessages = request.messages.filter(m => m.role === 'user');
+    return {
       model: this.#modelId,
       max_tokens: 4096,
       temperature: request.temperature,
@@ -28,10 +27,25 @@ export class AnthropicProvider implements LlmProvider {
         role: 'user' as const,
         content: m.content,
       })),
-    });
+    };
+  }
 
+  async chat(request: LlmRequest): Promise<LlmResponse> {
+    const response = await this.#client.messages.create(this.#buildParams(request));
     const content =
       response.content[0]?.type === 'text' ? response.content[0].text : '';
     return { content, modelId: this.#modelId };
+  }
+
+  async *stream(request: LlmRequest): AsyncIterable<string> {
+    const stream = this.#client.messages.stream(this.#buildParams(request));
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta.type === 'text_delta'
+      ) {
+        yield event.delta.text;
+      }
+    }
   }
 }

@@ -16,6 +16,11 @@ const mockLlmFactory = createServiceFactory({
       content: 'Mocked assistant response.',
       modelId: 'gpt-4',
     }),
+    stream: jest.fn().mockImplementation(async function* () {
+      yield 'Mocked ';
+      yield 'assistant ';
+      yield 'response.';
+    }),
   }),
 });
 
@@ -24,6 +29,7 @@ const mockRagFactory = createServiceFactory({
   deps: {},
   factory: () => ({
     indexSource: jest.fn().mockResolvedValue(undefined),
+    indexDocument: jest.fn().mockResolvedValue(undefined),
     retrieve: jest.fn().mockResolvedValue([]),
   }),
 });
@@ -60,7 +66,7 @@ describe('ragChatPlugin', () => {
     expect(listRes.body.items[0].title).toBe('My first conversation');
   });
 
-  it('should send a chat message and get a response', async () => {
+  it('should send a chat message and get a streamed response', async () => {
     const { server } = await startBackend();
 
     const convRes = await request(server)
@@ -76,12 +82,30 @@ describe('ragChatPlugin', () => {
     });
 
     expect(chatRes.status).toBe(200);
-    expect(chatRes.body).toMatchObject({
+    expect(chatRes.headers['content-type']).toMatch(/text\/event-stream/);
+    expect(chatRes.text).toContain('"type":"token"');
+    expect(chatRes.text).toContain('"type":"done"');
+    expect(chatRes.text).toContain(`"conversationId":"${convId}"`);
+  });
+
+  it('should upload a file and return a source reference', async () => {
+    const { server } = await startBackend();
+
+    const convRes = await request(server)
+      .post('/api/rag-chat/conversations')
+      .send({ title: 'Upload test' });
+    const convId = convRes.body.id;
+
+    const uploadRes = await request(server)
+      .post('/api/rag-chat/upload')
+      .field('conversationId', convId)
+      .attach('file', Buffer.from('uploaded knowledge base'), 'notes.txt');
+
+    expect(uploadRes.status).toBe(201);
+    expect(uploadRes.body.source).toMatchObject({
       conversationId: convId,
-      message: expect.objectContaining({
-        role: 'assistant',
-        content: 'Mocked assistant response.',
-      }),
+      fileName: 'notes.txt',
+      sourceId: expect.stringContaining(`upload:${convId}:`),
     });
   });
 
