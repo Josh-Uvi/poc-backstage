@@ -133,6 +133,8 @@ ragChat:
   defaultSourceIds:
     - catalog
     - techdocs
+  permission:
+    enabled: false  # set to true to enforce ragChatChatPermission and ragChatAdminPermission
   embedding:
     provider: openai
     apiToken: ${OPENAI_API_TOKEN}

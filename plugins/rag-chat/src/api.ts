@@ -41,6 +41,7 @@ export class RagChatConfigClient implements RagChatConfigApi {
       sources,
       defaultModelId: raw?.defaultModelId,
       defaultSourceIds: raw?.defaultSourceIds ?? [],
+      permissionEnabled: raw?.permission?.enabled ?? false,
     };
   }
 }

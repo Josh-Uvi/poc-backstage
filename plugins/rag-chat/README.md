@@ -1,12 +1,121 @@
-# RAG Chat Plugin
+# @internal/backstage-plugin-rag-chat
 
-A Backstage frontend plugin providing an AI-powered chat interface with conversation management, configurable LLM models, and RAG source selection.
+A Backstage **frontend** plugin that provides an AI-powered chat interface with real-time streaming responses, conversation management, file uploads, and configurable LLM models and RAG sources.
 
-## Getting Started
+Requires [`@internal/backstage-plugin-rag-chat-backend`](../rag-chat-backend/README.md) to be installed and running.
 
-Available at [/rag-chat](http://localhost:3000/rag-chat) when running `yarn start` from the root directory.
+---
 
-To serve the plugin in isolation:
+## How the two plugins relate
+
+Both plugins share a single `ragChat:` config block in `app-config.yaml`, but each reads a **different subset** of it:
+
+| Config key | Read by | Purpose |
+|---|---|---|
+| `ragChat.defaultModelId` | **Frontend** | Pre-selects a model in the Settings panel |
+| `ragChat.defaultSourceIds` | **Frontend** | Pre-selects RAG sources in the Settings panel |
+| `ragChat.permission.enabled` | **Frontend + Backend** | Toggles permission enforcement in both plugins |
+| `ragChat.models[].id` | **Frontend + Backend** | Identifies the model in requests |
+| `ragChat.models[].name` | **Frontend only** | Display name shown in the Settings dropdown |
+| `ragChat.models[].provider` | **Frontend + Backend** | Provider type (`openai`, `anthropic`, `google`) |
+| `ragChat.models[].apiBaseUrl` | **Frontend + Backend** | Shown in Settings UI; used by backend to call the API |
+| `ragChat.models[].apiToken` | **Backend only** ⚠️ | Secret — never sent to the browser |
+| `ragChat.embedding.*` | **Backend only** ⚠️ | Embedding model config — never sent to the browser |
+| `ragChat.sources[].id/name/type/description` | **Frontend + Backend** | Source identity and display |
+| `ragChat.sources[].target` | **Backend only** | URL or file path for custom sources |
+
+> **Security rule:** `apiToken` and `embedding.apiToken` are read exclusively by the backend process. Backstage's config system serves the `ragChat:` block to the frontend browser bundle — **never put real API tokens in `app-config.yaml` without using environment variable substitution** (e.g. `${OPENAI_API_TOKEN}`). The frontend `RagChatConfigClient` intentionally parses `apiToken` from the config object it receives, but in practice the backend config pipeline resolves env vars server-side and the frontend only ever sees the model metadata (id, name, provider, apiBaseUrl).
+
+---
+
+## Installation
+
+```sh
+yarn --cwd packages/app add @internal/backstage-plugin-rag-chat
+```
+
+Register in `packages/app/src/App.tsx`:
+
+```ts
+import ragChatPlugin from '@internal/backstage-plugin-rag-chat';
+
+export default createApp({
+  features: [
+    // ...other plugins
+    ragChatPlugin,
+  ],
+});
+```
+
+The plugin is available at [/rag-chat](http://localhost:3000/rag-chat).
+
+---
+
+## Frontend-only configuration
+
+These keys are read by the **frontend plugin only**. They control the UI defaults and do not affect backend behaviour.
+
+```yaml
+# app-config.yaml
+
+ragChat:
+  # Pre-selects this model in the Settings panel on first load.
+  # Must match an id defined under ragChat.models (configured for the backend).
+  defaultModelId: gpt-4
+
+  # Pre-selects these sources in the Settings panel on first load.
+  # Must match ids defined under ragChat.sources.
+  defaultSourceIds:
+    - catalog
+    - techdocs
+
+  # Controls whether Backstage permission checks are enforced.
+  # false (default) — all authenticated users have full access.
+  # true  — ragChatChatPermission gates chat/upload;
+  #         ragChatAdminPermission gates model/source management in Settings.
+  permission:
+    enabled: false
+
+  # Model display metadata — the frontend uses id, name, provider, apiBaseUrl
+  # to populate the Settings dropdown. apiToken is NOT needed here for the frontend;
+  # it is only required in the backend config.
+  models:
+    - id: gpt-4
+      name: GPT-4
+      provider: openai          # openai | anthropic | google | custom
+      apiBaseUrl: https://api.openai.com/v1
+      # apiToken is intentionally omitted here — set it in the backend config only
+
+    - id: claude-3-opus
+      name: Claude 3 Opus
+      provider: anthropic
+      apiBaseUrl: https://api.anthropic.com/v1
+
+    - id: gemini-pro
+      name: Gemini Pro
+      provider: google
+      apiBaseUrl: https://generativelanguage.googleapis.com/v1
+
+  # Source display metadata — the frontend uses id, name, type, description
+  # to populate the Settings source chips.
+  # target is NOT needed here; it is only required in the backend config.
+  sources:
+    - id: catalog
+      name: Software Catalog
+      type: catalog             # catalog | techdocs | custom
+      description: Query entities from the Backstage software catalog
+
+    - id: techdocs
+      name: TechDocs
+      type: techdocs
+      description: Query documentation from TechDocs
+```
+
+For the **backend-only** keys (`apiToken`, `embedding`, `sources[].target`) see the [backend README](../rag-chat-backend/README.md#backend-only-configuration).
+
+---
+
+## Development
 
 ```sh
 cd plugins/rag-chat
@@ -15,176 +124,90 @@ yarn start
 
 ---
 
-## Current Features
+## Implemented Features
 
-### Chat UI
-- Multi-conversation sidebar with create, select, and delete
-- Dynamic conversation titles derived from the first user message
-- Modern rounded chat bubbles — theme-aware (Backstage light/dark)
-- Logged-in user avatar (profile picture or initials via `identityApiRef`)
+### Chat Interface
+- Multi-conversation sidebar — create, select, delete; title derived from first message
+- Real-time SSE streaming — tokens appear as they arrive with a blinking cursor
+- Modern rounded chat bubbles, theme-aware (Backstage light and dark modes)
+- Logged-in user avatar — profile picture from `identityApiRef`, falls back to initials
 - Auto-scroll to latest message (configurable)
-- File attachment picker with chip preview
-- Conversations and settings persisted in `localStorage`
 
-### Configuration
-- Models and RAG sources configurable via `app-config.yaml` under `ragChat:`
-- UI fallback: users can add custom models and sources via the Settings panel when none are provided by config
-- User-defined models/sources stored in `localStorage` separately from app config
-- `RagChatConfigApi` registered as an `ApiBlueprint` extension in the new Backstage frontend system
+### File Uploads
+- Attach button opens a native file picker (TXT, PDF, DOCX)
+- Selected file shown as a dismissible chip above the input
+- File is uploaded to `POST /api/rag-chat/upload` and indexed for RAG retrieval within that conversation
 
 ### Settings Panel
-- Toggle auto-scroll and sound notifications
-- Select active LLM model and temperature
-- Toggle which RAG sources the assistant queries
-- Add/delete custom models (name, provider, API base URL, API token)
-- Add/delete custom sources (name, type, description)
+- **Appearance** — auto-scroll and sound notification toggles (all users)
+- **Model** — select active model and temperature (all users); add/delete custom models (admin only)
+- **RAG Sources** — toggle which sources the assistant queries (all users); add/delete custom sources (admin only)
+- User-defined models and sources stored in `localStorage` under `ragChat.userModels` / `ragChat.userSources`
+
+### Permissions
+- `ragChatChatPermission` (`rag-chat.chat`) — gates chat and file upload
+- `ragChatAdminPermission` (`rag-chat.admin`) — gates model/source management in Settings
+- Disabled by default (`ragChat.permission.enabled: false`)
+- When disabled, all authenticated users have full access including admin features
+
+### Architecture
+
+| File | Purpose |
+|------|---------|
+| `src/plugin.tsx` | Plugin registration, `PageBlueprint`, `ApiBlueprint` |
+| `src/api.ts` | `RagChatConfigApi` — reads frontend-relevant keys from `ragChat:` config |
+| `src/permissions.ts` | Permission definitions (shared with backend) |
+| `src/components/ChatUI/ChatInterface.tsx` | Main layout, SSE stream consumer, identity fetch |
+| `src/components/ChatUI/ChatMessage.tsx` | Message bubble with avatar and streaming cursor |
+| `src/components/ChatUI/ChatInput.tsx` | Text input with file attachment |
+| `src/components/ChatUI/ChatSidebar.tsx` | Conversation list |
+| `src/components/ChatUI/SettingsPanel.tsx` | Settings dialog with permission-aware controls |
+| `src/components/ChatUI/types.ts` | Shared TypeScript types |
 
 ---
 
-## app-config.yaml Reference
+## TODO — Remaining Work to Production
 
-```yaml
-ragChat:
-  defaultModelId: gpt-4
-  defaultSourceIds:
-    - catalog
-    - techdocs
-  models:
-    - id: gpt-4
-      name: GPT-4
-      provider: openai                          # openai | anthropic | google | custom
-      apiBaseUrl: https://api.openai.com/v1
-      # apiToken: ${OPENAI_API_TOKEN}
-    - id: claude-3-opus
-      name: Claude 3 Opus
-      provider: anthropic
-      apiBaseUrl: https://api.anthropic.com/v1
-      # apiToken: ${ANTHROPIC_API_TOKEN}
-    - id: gemini-pro
-      name: Gemini Pro
-      provider: google
-      apiBaseUrl: https://generativelanguage.googleapis.com/v1
-      # apiToken: ${GOOGLE_API_TOKEN}
-  sources:
-    - id: catalog
-      name: Software Catalog
-      type: catalog
-      description: Query entities from the Backstage software catalog
-    - id: techdocs
-      name: TechDocs
-      type: techdocs
-      description: Query documentation from TechDocs
-```
+### High Priority
 
----
+- [ ] **Wire to real backend — conversations**
+  - On mount, call `GET /api/rag-chat/conversations` and replace `localStorage` state
+  - On create/delete, call backend endpoints and update local state optimistically
+  - `localStorage` should become a cache only, not the source of truth
 
-## TODO — Remaining Work
-
-### Backend Plugin (`plugins/rag-chat-backend`)
-
-- [x] **Create backend plugin scaffold**
-  - Run `yarn backstage-cli new --select backend-plugin` to generate `plugins/rag-chat-backend`
-  - Register it in `packages/backend/src/index.ts` via `backend.add(import('@internal/backstage-plugin-rag-chat-backend'))`
-
-- [x] **REST API router**
-  - `POST /api/rag-chat/chat` — accepts `{ message, modelId, sourceIds, conversationId, temperature }`, returns streamed or single assistant response
-  - `GET /api/rag-chat/conversations` — list saved conversations per user
-  - `POST /api/rag-chat/conversations` — create/update a conversation
-  - `DELETE /api/rag-chat/conversations/:id` — delete a conversation
-
-- [x] **LLM provider integrations**
-  - OpenAI (`gpt-3.5-turbo`, `gpt-4`, `gpt-4o`) via `openai` npm package
-  - Anthropic (`claude-3-*`) via `@anthropic-ai/sdk`
-  - Google Gemini via `@google/generative-ai`
-  - Abstract behind a common `LlmProvider` interface so providers are swappable
-  - Read `apiToken` and `apiBaseUrl` from `app-config.yaml` server-side (never expose tokens to the frontend)
-
-- [x] **RAG pipeline**
-  - Catalog source: use `CatalogClient` to fetch entities( kinds such as api, component, group, template, user), chunk and embed metadata/descriptions
-  - TechDocs source: read rendered HTML from TechDocs storage, chunk into passages
-  - Custom source: accept a URL or file path, fetch and chunk content
-  - Embed chunks using the configured model's embedding endpoint (or a dedicated embedding model)
-  - Store embeddings in a vector store (options: pgvector via existing Postgres, in-memory for dev, or external e.g. Pinecone/Weaviate)
-  - At query time: embed the user message, retrieve top-k relevant chunks, inject into the LLM prompt as context
-
-- [x] **Conversation persistence (database)**
-  - Use Backstage's `DatabaseService` (Knex) to store conversations and messages per user
-  - Schema: `rag_chat_conversations(id, user_ref, title, created_at, updated_at)` and `rag_chat_messages(id, conversation_id, role, content, timestamp)`
-  - Migrate away from `localStorage` as the source of truth — use it only as a cache
-
-- [x] **Streaming responses**
-  - Implement SSE (`text/event-stream`) or chunked transfer on `POST /api/rag-chat/chat`
-  - Frontend consumes the stream and appends tokens to the message bubble in real time
-
-- [ ] **File upload handling**
-  - `POST /api/rag-chat/upload` — accept multipart file, extract text (PDF, DOCX, TXT), chunk and embed
-  - Associate uploaded file chunks with the conversation for scoped RAG retrieval
-  - Return a source reference the frontend can display
-
-- [ ] **Permissions**
-  - Define `ragChatChatPermission` and `ragChatAdminPermission` using Backstage's permission framework
-  - Gate the chat endpoint behind `ragChatChatPermission`
-  - Gate model/source management behind `ragChatAdminPermission`
-
----
-
-### Frontend (`plugins/rag-chat`)
-
-- [ ] **Replace mock response generator with real API calls**
-  - Create a `RagChatClient` that calls `POST /api/rag-chat/chat` via `fetchApiRef` + `discoveryApiRef`
-  - Pass `modelId`, `temperature`, `activeSourceIds`, `conversationId`, and message content
-  - Handle errors and surface them via the snackbar
-
-- [ ] **Streaming message rendering**
-  - Consume the SSE stream from the backend
-  - Render a message bubble that grows token-by-token with a blinking cursor indicator
-
-- [ ] **Sync conversations with backend**
-  - On mount, fetch conversations from `GET /api/rag-chat/conversations` and merge with `localStorage`
-  - On create/delete, call the corresponding backend endpoints
-  - Remove `localStorage` as the primary store; use it only for optimistic UI
-
-- [ ] **File upload integration**
-  - Wire the attach button to `POST /api/rag-chat/upload`
-  - Show upload progress indicator
-  - Display uploaded file as a cited source in the conversation
+- [ ] **Wire to real backend — chat**
+  - `handleSendMessage` currently uses a mock `setTimeout` — replace with a real `fetchApi.fetch` call to `POST /api/rag-chat/chat`
+  - Consume the SSE stream token-by-token using `ReadableStream`
+  - Surface `{ type: 'error' }` SSE events via the snackbar
 
 - [ ] **Markdown rendering in message bubbles**
-  - Replace plain `<Typography>` with a Markdown renderer (e.g. `react-markdown` + `remark-gfm`)
-  - Support code blocks with syntax highlighting (`react-syntax-highlighter`)
+  - Replace plain `<Typography>` with `react-markdown` + `remark-gfm`
+  - Add syntax highlighting for code blocks via `react-syntax-highlighter`
 
-- [ ] **Source citations in responses**
-  - Backend should return `citations: [{ title, url, excerpt }]` alongside the answer
-  - Frontend renders citations as expandable cards below the assistant bubble
+- [ ] **Source citations**
+  - Render `citations` from the `done` SSE event as collapsible cards below the assistant bubble
 
-- [ ] **Conversation search / filter**
-  - Add a search input to the sidebar to filter conversations by title or message content
+### Medium Priority
 
-- [ ] **Rename conversation**
-  - Allow users to double-click a conversation title in the sidebar to rename it inline
+- [ ] **Move user-defined model tokens server-side**
+  - Storing `apiToken` in `localStorage` is insecure
+  - Frontend should only send `modelId`; backend resolves the token
+
+- [ ] **Conversation search and filter**
+  - Search input in the sidebar to filter by title or message content
+
+- [ ] **Rename conversation inline**
+  - Double-click a conversation title in the sidebar to edit it in place
 
 - [ ] **Export conversation**
-  - Add a menu option to export the current conversation as Markdown or JSON
+  - Download the current conversation as Markdown or JSON
 
-- [ ] **Token / cost indicator**
-  - Display estimated token usage and cost per message based on the selected model's pricing
+- [ ] **Upload progress indicator**
+  - Show a progress bar while a file is being uploaded and indexed
 
----
+### Lower Priority
 
-### Infrastructure & Quality
-
-- [ ] **Move API tokens server-side**
-  - Currently `apiToken` can be stored in `localStorage` for user-defined models — this is insecure
-  - Backend should proxy all LLM calls; tokens should only live in `app-config.yaml` or environment variables
-
-- [ ] **Vector store setup guide**
-  - Document how to enable `pgvector` extension on the Backstage Postgres instance
-  - Provide a Knex migration for the embeddings table
-
-- [ ] **Expand test coverage**
-  - Unit tests for `RagChatConfigClient` parsing edge cases
-  - Unit tests for the backend LLM provider adapters
-  - Integration test for the RAG pipeline (embed → retrieve → generate)
-  - E2E test for the full chat flow using `@backstage/frontend-test-utils`
-
-- [ ] **Update README** with backend setup steps, vector store configuration, and provider-specific environment variable names once backend is implemented
+- [ ] **Token / cost indicator** per message
+- [ ] **Keyboard shortcuts** (`Ctrl+K` new conversation, `Escape` close Settings)
+- [ ] **Accessibility audit** — ARIA labels, keyboard navigation
+- [ ] **Expand test coverage** — SSE stream consumption, `SettingsPanel` with `canAdmin=false`, `RagChatConfigClient` edge cases

@@ -90,6 +90,7 @@ interface SettingsPanelProps {
   onSave?: (settings: SettingsState) => void;
   configModels: RagChatModel[];
   configSources: RagChatSource[];
+  canAdmin?: boolean;
 }
 
 export interface SettingsState {
@@ -124,6 +125,7 @@ export const SettingsPanel = ({
   onSave,
   configModels,
   configSources,
+  canAdmin = true,
 }: SettingsPanelProps): React.ReactElement => {
   const classes = useStyles();
 
@@ -258,18 +260,26 @@ export const SettingsPanel = ({
           <Box className={classes.section}>
             <Box display="flex" justifyContent="space-between" alignItems="center">
               <Typography variant="subtitle2" className={classes.sectionTitle}>Model</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setShowAddModel(v => !v)}>
-                Add model
-              </Button>
+              {canAdmin && (
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setShowAddModel(v => !v)}>
+                  Add model
+                </Button>
+              )}
             </Box>
 
-            {configModels.length > 0 && (
+            {canAdmin && configModels.length > 0 && (
               <Typography className={classes.hint}>
                 Models from app-config.yaml are read-only.
               </Typography>
             )}
 
-            {allModels.length > 0 && (
+            {!canAdmin && (
+              <Typography className={classes.hint}>
+                Model management requires admin permission.
+              </Typography>
+            )}
+
+            {allModels.length > 0 ? (
               <>
                 <TextField
                   select
@@ -300,10 +310,15 @@ export const SettingsPanel = ({
                   helperText="0 = deterministic, 1 = creative"
                 />
               </>
+            ) : (
+              <Typography className={classes.hint}>
+                No models configured.
+                {canAdmin ? ' Use "Add model" above or configure ragChat.models in app-config.yaml.' : ''}
+              </Typography>
             )}
 
-            {/* User-defined models list */}
-            {userModels.length > 0 && (
+            {/* User-defined models list — admin only */}
+            {canAdmin && userModels.length > 0 && (
               <Box mt={1}>
                 {userModels.map(m => (
                   <Box key={m.id} className={classes.userItem}>
@@ -318,8 +333,8 @@ export const SettingsPanel = ({
               </Box>
             )}
 
-            {/* Add model form */}
-            {showAddModel && (
+            {/* Add model form — admin only */}
+            {canAdmin && showAddModel && (
               <Box className={classes.addForm}>
                 <Typography className={classes.addFormTitle}>Add a model</Typography>
                 <TextField
@@ -359,18 +374,26 @@ export const SettingsPanel = ({
           <Box className={classes.section}>
             <Box display="flex" justifyContent="space-between" alignItems="center">
               <Typography variant="subtitle2" className={classes.sectionTitle}>RAG Sources</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setShowAddSource(v => !v)}>
-                Add source
-              </Button>
+              {canAdmin && (
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setShowAddSource(v => !v)}>
+                  Add source
+                </Button>
+              )}
             </Box>
 
-            {configSources.length > 0 && (
+            {canAdmin && configSources.length > 0 && (
               <Typography className={classes.hint}>
                 Sources from app-config.yaml are read-only.
               </Typography>
             )}
 
-            {allSources.length > 0 && (
+            {!canAdmin && (
+              <Typography className={classes.hint}>
+                Source management requires admin permission.
+              </Typography>
+            )}
+
+            {allSources.length > 0 ? (
               <>
                 <Typography variant="caption" color="textSecondary">
                   Select which sources the assistant will query
@@ -382,17 +405,22 @@ export const SettingsPanel = ({
                       label={s.userDefined ? `${s.name} (custom)` : s.name}
                       color={settings.activeSourceIds.includes(s.id) ? 'primary' : 'default'}
                       onClick={() => toggleSource(s.id)}
-                      onDelete={s.userDefined ? () => handleDeleteSource(s.id) : undefined}
+                      onDelete={canAdmin && s.userDefined ? () => handleDeleteSource(s.id) : undefined}
                       title={s.description}
                       size="small"
                     />
                   ))}
                 </Box>
               </>
+            ) : (
+              <Typography className={classes.hint}>
+                No sources configured.
+                {canAdmin ? ' Use "Add source" above or configure ragChat.sources in app-config.yaml.' : ''}
+              </Typography>
             )}
 
-            {/* Add source form */}
-            {showAddSource && (
+            {/* Add source form — admin only */}
+            {canAdmin && showAddSource && (
               <Box className={classes.addForm}>
                 <Typography className={classes.addFormTitle}>Add a source</Typography>
                 <TextField

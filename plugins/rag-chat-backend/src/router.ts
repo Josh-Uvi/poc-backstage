@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
-import { HttpAuthService } from '@backstage/backend-plugin-api';
-import { InputError, NotFoundError } from '@backstage/errors';
+import { HttpAuthService, PermissionsService } from '@backstage/backend-plugin-api';
+import { InputError, NotFoundError, NotAllowedError } from '@backstage/errors';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import { z } from 'zod/v3';
 import express from 'express';
 import Router from 'express-promise-router';
@@ -9,6 +10,7 @@ import { ILlmService } from './services/llm/LlmService';
 import { IRagService } from './services/rag/RagService';
 import multer from 'multer';
 import { extractTextFromUpload } from './services/rag/FileTextExtractor';
+import { ragChatChatPermission, ragChatAdminPermission } from './permissions';
 
 const chatSchema = z.object({
   message: z.string().min(1),
@@ -35,17 +37,39 @@ const upsertConversationSchema = z.object({
 
 export async function createRouter({
   httpAuth,
+  permissions,
+  permissionsEnabled,
   conversations,
   llm,
   rag,
 }: {
   httpAuth: HttpAuthService;
+  permissions: PermissionsService;
+  permissionsEnabled: boolean;
   conversations: IConversationService;
   llm: ILlmService;
   rag: IRagService;
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
+
+  // ── Permission helpers ──────────────────────────────────────────────────────
+
+  const requirePermission = async (
+    req: express.Request,
+    permission: typeof ragChatChatPermission | typeof ragChatAdminPermission,
+  ) => {
+    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    if (!permissionsEnabled) return credentials;
+    const [result] = await permissions.authorize(
+      [{ permission }],
+      { credentials },
+    );
+    if (result.result !== AuthorizeResult.ALLOW) {
+      throw new NotAllowedError(`Permission '${permission.name}' denied`);
+    }
+    return credentials;
+  };
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 },
@@ -84,7 +108,7 @@ export async function createRouter({
    *   - conversationId: target conversation
    */
   router.post('/upload', uploadSingle, async (req, res) => {
-    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    const credentials = await requirePermission(req, ragChatChatPermission);
     const userRef = credentials.principal.userEntityRef;
 
     const conversationId = typeof req.body?.conversationId === 'string'
@@ -150,7 +174,17 @@ export async function createRouter({
    *   data: {"type":"error","error":"..."}
    */
   router.post('/chat', async (req, res) => {
-    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    let credentials;
+    try {
+      credentials = await requirePermission(req, ragChatChatPermission);
+    } catch (e: any) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.flushHeaders();
+      res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+      res.end();
+      return;
+    }
     const userRef = credentials.principal.userEntityRef;
 
     const parsed = chatSchema.safeParse(req.body);
@@ -260,7 +294,7 @@ export async function createRouter({
    * Returns all conversations for the authenticated user.
    */
   router.get('/conversations', async (req, res) => {
-    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    const credentials = await requirePermission(req, ragChatChatPermission);
     const userRef = credentials.principal.userEntityRef;
     const items = await conversations.listConversations(userRef);
     res.json({ items });
@@ -271,7 +305,7 @@ export async function createRouter({
    * Creates or updates a conversation for the authenticated user.
    */
   router.post('/conversations', async (req, res) => {
-    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    const credentials = await requirePermission(req, ragChatChatPermission);
     const userRef = credentials.principal.userEntityRef;
 
     const parsed = upsertConversationSchema.safeParse(req.body);
@@ -292,10 +326,22 @@ export async function createRouter({
    * Deletes a conversation owned by the authenticated user.
    */
   router.delete('/conversations/:id', async (req, res) => {
-    const credentials = await httpAuth.credentials(req as any, { allow: ['user'] });
+    const credentials = await requirePermission(req, ragChatChatPermission);
     const userRef = credentials.principal.userEntityRef;
     await conversations.deleteConversation(req.params.id, userRef);
     res.status(204).send();
+  });
+
+  /**
+   * GET /admin/config
+   * Returns the server-side ragChat config (models without tokens, sources).
+   * Gated behind ragChatAdminPermission.
+   */
+  router.get('/admin/config', async (req, res) => {
+    await requirePermission(req, ragChatAdminPermission);
+    // Return safe config — never expose apiTokens
+    const models = (rag as any).getConfigModels?.() ?? [];
+    res.json({ models, sources: [] });
   });
 
   return router;

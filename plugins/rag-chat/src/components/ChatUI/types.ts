@@ -52,4 +52,5 @@ export interface RagChatConfig {
   sources: RagChatSource[];
   defaultModelId?: string;
   defaultSourceIds?: string[];
+  permissionEnabled: boolean;
 }

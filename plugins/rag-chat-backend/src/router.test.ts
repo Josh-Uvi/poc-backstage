@@ -3,6 +3,7 @@ import {
   mockErrorHandler,
   mockServices,
 } from '@backstage/backend-test-utils';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import express from 'express';
 import request from 'supertest';
 import { createRouter } from './router';
@@ -15,6 +16,7 @@ describe('createRouter', () => {
   let conversations: jest.Mocked<ConversationService>;
   let llm: jest.Mocked<ILlmService>;
   let rag: jest.Mocked<IRagService>;
+  let permissions: { authorize: jest.Mock };
 
   const mockConversation = {
     id: 'conv-1',
@@ -52,9 +54,14 @@ describe('createRouter', () => {
       indexDocument: jest.fn().mockResolvedValue(undefined),
       retrieve: jest.fn().mockResolvedValue([]),
     };
+    permissions = {
+      authorize: jest.fn().mockResolvedValue([{ result: AuthorizeResult.ALLOW }]),
+    };
 
     const router = await createRouter({
       httpAuth: mockServices.httpAuth(),
+      permissions: permissions as any,
+      permissionsEnabled: true,
       conversations,
       llm,
       rag,
@@ -129,12 +136,25 @@ describe('createRouter', () => {
       expect(response.status).toBe(400);
     });
 
-    it('should reject unauthenticated requests', async () => {
+    it('should return SSE error event for unauthenticated requests', async () => {
       const response = await request(app)
         .post('/chat')
         .set('Authorization', mockCredentials.none.header())
         .send({ message: 'Hello', modelId: 'gpt-4' });
-      expect(response.status).toBe(401);
+      expect(response.headers['content-type']).toMatch(/text\/event-stream/);
+      expect(response.text).toContain('"type":"error"');
+    });
+
+    it('should return SSE error event when chat permission is denied', async () => {
+      permissions.authorize.mockResolvedValueOnce([{ result: AuthorizeResult.DENY }]);
+
+      const response = await request(app).post('/chat').send({
+        message: 'Hello',
+        modelId: 'gpt-4',
+      });
+
+      expect(response.headers['content-type']).toMatch(/text\/event-stream/);
+      expect(response.text).toContain('"type":"error"');
     });
 
     it('should include uploaded conversation sources in retrieval', async () => {
@@ -280,6 +300,23 @@ describe('createRouter', () => {
 
       const response = await request(app).delete('/conversations/missing');
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe('GET /admin/config', () => {
+    it('should return config when admin permission is granted', async () => {
+      const response = await request(app).get('/admin/config');
+      expect(response.status).toBe(200);
+      expect(permissions.authorize).toHaveBeenCalledWith(
+        [expect.objectContaining({ permission: expect.objectContaining({ name: 'rag-chat.admin' }) })],
+        expect.anything(),
+      );
+    });
+
+    it('should return 403 when admin permission is denied', async () => {
+      permissions.authorize.mockResolvedValueOnce([{ result: AuthorizeResult.DENY }]);
+      const response = await request(app).get('/admin/config');
+      expect(response.status).toBe(403);
     });
   });
 });

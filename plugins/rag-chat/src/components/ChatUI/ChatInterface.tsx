@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApi, identityApiRef, discoveryApiRef, fetchApiRef } from '@backstage/core-plugin-api';
+import { usePermission } from '@backstage/plugin-permission-react';
+import { ragChatAdminPermission } from '../../permissions';
 import { makeStyles } from '@material-ui/core/styles';
 import {
   Box,
@@ -138,11 +140,16 @@ export const ChatInterface = (): React.ReactElement => {
   const ragChatConfigApi = useApi(ragChatConfigApiRef);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const { allowed: canAdmin } = usePermission({ permission: ragChatAdminPermission });
   const [userProfile, setUserProfile] = useState<{ displayName?: string; picture?: string }>({});
   const [models, setModels] = useState<RagChatModel[]>([]);
   const [sources, setSources] = useState<RagChatSource[]>([]);
   const [activeSettings, setActiveSettings] = useState<SettingsState | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [permissionEnabled, setPermissionEnabled] = useState(false);
+
+  // When permissions are disabled everyone is treated as admin
+  const effectiveCanAdmin = !permissionEnabled || canAdmin;
 
   useEffect(() => {
     identityApi.getProfileInfo().then(profile => setUserProfile(profile));
@@ -152,6 +159,7 @@ export const ChatInterface = (): React.ReactElement => {
     const config = ragChatConfigApi.getConfig();
     setModels(config.models);
     setSources(config.sources);
+    setPermissionEnabled(config.permissionEnabled);
     // Load persisted settings or initialise from config defaults
     const saved = localStorage.getItem('chatSettings');
     if (saved) {
@@ -167,6 +175,7 @@ export const ChatInterface = (): React.ReactElement => {
     }
   }, [ragChatConfigApi]);
   const [state, setState] = useState<ChatUIState>(() => {
+    // Seed from localStorage as an optimistic cache while the backend loads
     const saved = localStorage.getItem('chatState');
     return saved
       ? JSON.parse(saved)
@@ -183,12 +192,52 @@ export const ChatInterface = (): React.ReactElement => {
         };
   });
 
+  // Fetch conversations from the backend on mount and replace localStorage cache
+  useEffect(() => {
+    let cancelled = false;
+    discoveryApi.getBaseUrl('rag-chat').then(async baseUrl => {
+      try {
+        const res = await fetchApi.fetch(`${baseUrl}/conversations`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const backendConversations: Conversation[] = (data.items ?? []).map((c: any) => ({
+          id: c.id,
+          title: c.title,
+          messages: (c.messages ?? []).map((m: any) => ({
+            id: m.id,
+            content: m.content,
+            sender: m.role as 'user' | 'assistant',
+            timestamp: new Date(m.timestamp),
+          })),
+          sourceRefs: [],
+          createdAt: new Date(c.createdAt),
+          updatedAt: new Date(c.updatedAt),
+        }));
+        setState(prev => ({
+          ...prev,
+          conversations: backendConversations,
+          // Keep currentConversationId if it still exists in the backend list
+          currentConversationId: backendConversations.some(
+            c => c.id === prev.currentConversationId,
+          )
+            ? prev.currentConversationId
+            : null,
+        }));
+      } catch {
+        // Backend unavailable — silently keep the localStorage cache
+      }
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.conversations, state.currentConversationId]);
 
-  // Save state to localStorage whenever it changes
+  // Write-through cache: persist to localStorage so the UI loads instantly on next visit
+  // while the backend fetch replaces it in the background
   useEffect(() => {
     localStorage.setItem('chatState', JSON.stringify(state));
   }, [state]);
@@ -211,7 +260,7 @@ export const ChatInterface = (): React.ReactElement => {
     c => c.id === state.currentConversationId,
   );
 
-  const handleNewConversation = () => {
+  const handleNewConversation = async () => {
     const newConversation: Conversation = {
       id: `conv_${Date.now()}`,
       title: 'New Conversation',
@@ -221,11 +270,24 @@ export const ChatInterface = (): React.ReactElement => {
       updatedAt: new Date(),
     };
 
+    // Optimistic update
     setState(prev => ({
       ...prev,
       conversations: [newConversation, ...prev.conversations],
       currentConversationId: newConversation.id,
     }));
+
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
+      const res = await fetchApi.fetch(`${baseUrl}/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: newConversation.id, title: newConversation.title }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+    } catch {
+      // Backend call failed — keep the optimistic entry so the user isn't blocked
+    }
 
     showSnackbar('New conversation created', 'success');
   };
@@ -460,14 +522,28 @@ export const ChatInterface = (): React.ReactElement => {
     }));
   };
 
-  const handleDeleteConversation = (id: string) => {
+  const handleDeleteConversation = async (id: string) => {
+    // Optimistic removal
+    const previous = state.conversations;
     setState(prev => ({
       ...prev,
       conversations: prev.conversations.filter(c => c.id !== id),
       currentConversationId:
         prev.currentConversationId === id ? null : prev.currentConversationId,
     }));
-    showSnackbar('Conversation deleted', 'info');
+
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
+      const res = await fetchApi.fetch(`${baseUrl}/conversations/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      showSnackbar('Conversation deleted', 'info');
+    } catch {
+      // Roll back the optimistic removal
+      setState(prev => ({ ...prev, conversations: previous }));
+      showSnackbar('Failed to delete conversation', 'error');
+    }
   };
 
   const handleSettingsClose = () => {
@@ -584,6 +660,7 @@ export const ChatInterface = (): React.ReactElement => {
           onSave={settings => setActiveSettings(settings)}
           configModels={models}
           configSources={sources}
+          canAdmin={effectiveCanAdmin}
         />
 
         {/* Snackbar */}
