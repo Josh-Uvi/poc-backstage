@@ -106,9 +106,9 @@ const makeChatFetchApi = (sseEvents: object[]) => ({
 /** Type and submit a message via fireEvent only (avoids Suspense conflicts) */
 const sendMessage = (input: HTMLElement, message: string) => {
   fireEvent.change(input, { target: { value: message } });
-  // MUI multiline TextField renders a <textarea> — fire keypress on it directly
+  // MUI multiline TextField renders a <textarea> — fire keydown on it directly
   const textarea = input.tagName === 'TEXTAREA' ? input : input.querySelector('textarea') ?? input;
-  fireEvent.keyPress(textarea, { key: 'Enter', code: 'Enter', charCode: 13 });
+  fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
 };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ describe('ChatInterface', () => {
   });
 
   const setupConversation = async () => {
-    fireEvent.click(screen.getByRole('button', { name: /new conversation/i }));
+    fireEvent.click(screen.getByText(/Start New Conversation/i));
     await waitFor(() =>
       expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
     );
@@ -143,18 +143,16 @@ describe('ChatInterface', () => {
 
     it('shows empty state when no conversation is selected', async () => {
       await renderApp();
-      const matches = screen.getAllByText((_, el) =>
-        el?.textContent === 'Start a new conversation to begin',
-      );
-      expect(matches.length).toBeGreaterThan(0);
+      expect(screen.getByText(/Welcome to RAG AI/i)).toBeInTheDocument();
+      expect(screen.getByText(/Harness the power of Retrieval-Augmented Generation/i)).toBeInTheDocument();
     });
 
-    it('shows "no messages yet" empty state when conversation has no messages', async () => {
+    it('shows "ready to help" empty state when conversation has no messages', async () => {
       const user = userEvent.setup();
       await renderApp();
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
-        expect(screen.getByText(/no messages yet/i)).toBeInTheDocument(),
+        expect(screen.getByText(/Ready to help/i)).toBeInTheDocument(),
       );
     });
   });
@@ -281,10 +279,7 @@ describe('ChatInterface', () => {
 
       // Should show the "no conversation selected" empty state
       await waitFor(() => {
-        const matches = screen.getAllByText((_, el) =>
-          el?.textContent === 'Start a new conversation to begin',
-        );
-        expect(matches.length).toBeGreaterThan(0);
+        expect(screen.getByText(/Welcome to RAG AI/i)).toBeInTheDocument();
       });
     });
   });
@@ -306,7 +301,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp(fetchApi);
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
 
       // Conversation appears immediately before backend responds
       await waitFor(() =>
@@ -330,7 +325,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp(fetchApi);
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
 
       // Conversation should still be visible even though backend failed
       await waitFor(() =>
@@ -346,7 +341,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() => expect(screen.getByTitle(/delete conversation/i)).toBeInTheDocument());
 
       fireEvent.click(screen.getByTitle(/delete conversation/i));
@@ -369,7 +364,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp(fetchApi);
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
         expect(screen.getAllByText('New Conversation').length).toBeGreaterThan(0),
       );
@@ -386,7 +381,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
         expect(screen.getAllByText('New Conversation').length).toBeGreaterThan(0),
       );
@@ -394,10 +389,7 @@ describe('ChatInterface', () => {
       fireEvent.click(screen.getByTitle(/delete conversation/i));
 
       await waitFor(() => {
-        const matches = screen.getAllByText((_, el) =>
-          el?.textContent === 'Start a new conversation to begin',
-        );
-        expect(matches.length).toBeGreaterThan(0);
+        expect(screen.getByText(/Welcome to RAG AI/i)).toBeInTheDocument();
       });
     });
   });
@@ -409,14 +401,14 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
         expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
       );
 
       const input = screen.getByPlaceholderText(/type your message/i);
       await user.type(input, 'Hello world');
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
 
       await waitFor(() =>
         expect(screen.getByText('Hello world')).toBeInTheDocument(),
@@ -427,14 +419,14 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
         expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
       );
 
       const input = screen.getByPlaceholderText(/type your message/i);
       await user.type(input, 'What is Backstage?');
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
 
       await waitFor(() =>
         expect(screen.getByText('What is Backstage?')).toBeInTheDocument(),
@@ -445,7 +437,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
         expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
       );
@@ -453,7 +445,7 @@ describe('ChatInterface', () => {
       const longMessage = 'This is a very long message that exceeds forty characters easily';
       const input = screen.getByPlaceholderText(/type your message/i);
       await user.type(input, longMessage);
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
 
       await waitFor(() => {
         // Title should be truncated with ellipsis
@@ -469,13 +461,13 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp(fetchApi);
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() =>
         expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
       );
 
       const input = screen.getByPlaceholderText(/type your message/i);
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
 
       // No chat POST should have been made
       const chatCalls = (fetchApi.fetch as jest.Mock).mock.calls.filter(
@@ -610,7 +602,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() => expect(screen.getByTitle('Settings')).toBeInTheDocument());
 
       await user.click(screen.getByTitle('Settings'));
@@ -624,7 +616,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() => expect(screen.getByTitle('Settings')).toBeInTheDocument());
 
       await user.click(screen.getByTitle('Settings'));
@@ -640,7 +632,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
       await waitFor(() => expect(screen.getByTitle('Settings')).toBeInTheDocument());
 
       await user.click(screen.getByTitle('Settings'));
@@ -768,7 +760,7 @@ describe('ChatInterface', () => {
       const user = userEvent.setup();
       await renderApp();
 
-      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await user.click(screen.getByText(/Start New Conversation/i));
 
       await waitFor(() => {
         const cached = JSON.parse(localStorage.getItem('chatState') ?? '{}');

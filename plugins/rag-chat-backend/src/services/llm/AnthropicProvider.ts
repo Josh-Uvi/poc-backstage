@@ -14,8 +14,9 @@ export class AnthropicProvider implements LlmProvider {
   }
 
   #buildParams(request: LlmRequest) {
-    const systemMessages = request.messages.filter(m => m.role === 'assistant');
-    const userMessages = request.messages.filter(m => m.role === 'user');
+    const systemMessages = request.messages.filter(m => m.role === 'system');
+    const conversationMessages = request.messages.filter(m => m.role !== 'system');
+    
     return {
       model: this.#modelId,
       max_tokens: 4096,
@@ -23,8 +24,8 @@ export class AnthropicProvider implements LlmProvider {
       system: systemMessages.length
         ? systemMessages.map(m => m.content).join('\n')
         : undefined,
-      messages: userMessages.map(m => ({
-        role: 'user' as const,
+      messages: conversationMessages.map(m => ({
+        role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
         content: m.content,
       })),
     };

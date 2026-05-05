@@ -300,30 +300,43 @@ export async function createRouter({
         : await rag.retrieve(message, retrievalSourceIds, 3);
     }
 
-    // Build LLM message history
-    const llmMessages = [
-      ...existingConv.messages.map(m => ({ role: m.role, content: m.content })),
-      { role: 'user' as const, content: message },
-    ];
+    // Build LLM message history with system instructions at the top
+    const llmMessages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [];
 
     if (contextChunks.length) {
       const contextText = contextChunks
         .map((c, i) => `[${i + 1}] (${c.metadata.ref ?? c.metadata.title ?? c.metadata.sourceId})\n${c.text}`)
         .join('\n\n');
-      llmMessages.unshift({
-        role: 'assistant' as const,
+      llmMessages.push({
+        role: 'system',
         content:
-          `You are a helpful Backstage assistant. Use the following context to answer the user's question.\n\n` +
+          `You are a helpful Backstage assistant. Use the following context to answer the user's question directly.\n\n` +
           `Context:\n${contextText}\n\n` +
-          `If the context does not contain enough information, say so clearly.`,
+          `Instructions:\n` +
+          `1. Answer only based on the context provided above.\n` +
+          `2. Do not repeat the user's previous questions or your previous answers in your response.\n` +
+          `3. Do not start with phrases like "Based on the context" or "According to the history".\n` +
+          `4. If the context does not contain enough information, say so clearly.`,
       });
     } else if (retrievalSourceIds.length) {
-      llmMessages.unshift({
-        role: 'assistant' as const,
+      llmMessages.push({
+        role: 'system',
         content:
-          `You are a helpful Backstage assistant. Answer using knowledge from: ${retrievalSourceIds.join(', ')}.`,
+          `You are a helpful Backstage assistant. Answer using knowledge from these sources: ${retrievalSourceIds.join(', ')}.\n` +
+          `Do not repeat previous parts of the conversation in your answer.`,
+      });
+    } else {
+      llmMessages.push({
+        role: 'system',
+        content: `You are a helpful Backstage assistant. Provide direct and concise answers. Do not repeat conversation history.`,
       });
     }
+
+    // Append chat history
+    llmMessages.push(...existingConv.messages.map(m => ({ role: m.role, content: m.content })));
+    
+    // Append current user message
+    llmMessages.push({ role: 'user', content: message });
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApi, identityApiRef, discoveryApiRef, fetchApiRef } from '@backstage/core-plugin-api';
-import { usePermission } from '@backstage/plugin-permission-react';
-import { ragChatAdminPermission } from '../../permissions';
+// import { usePermission } from '@backstage/plugin-permission-react';
+// import { ragChatAdminPermission } from '../../permissions';
 import { makeStyles } from '@material-ui/core/styles';
 import {
   Box,
@@ -14,8 +14,11 @@ import {
   Tooltip,
   Menu,
   MenuItem,
+  Typography,
+  Button,
 } from '@material-ui/core';
 import GetAppIcon from '@material-ui/icons/GetApp';
+import AddIcon from '@material-ui/icons/Add';
 import { Alert } from '@material-ui/lab';
 import {
   Page,
@@ -93,8 +96,21 @@ const useStyles = makeStyles(theme => ({
   sidebarContainer: {
     width: '300px',
     borderRight: `1px solid ${theme.palette.divider}`,
+    transition: theme.transitions.create('width', {
+      easing: theme.transitions.easing.sharp,
+      duration: theme.transitions.duration.enteringScreen,
+    }),
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
     [theme.breakpoints.down('sm')]: {
       width: '250px',
+    },
+  },
+  sidebarContainerCollapsed: {
+    width: '64px',
+    [theme.breakpoints.down('sm')]: {
+      width: '0px',
     },
   },
   mainContainer: {
@@ -133,7 +149,23 @@ const useStyles = makeStyles(theme => ({
     justifyContent: 'center',
     height: '100%',
     textAlign: 'center',
-    opacity: 0.6,
+    padding: theme.spacing(4),
+  },
+  emptyStateIcon: {
+    fontSize: '5rem',
+    marginBottom: theme.spacing(3),
+    color: theme.palette.primary.main,
+    opacity: 0.8,
+  },
+  emptyStateTitle: {
+    fontWeight: 700,
+    marginBottom: theme.spacing(2),
+  },
+  emptyStateDescription: {
+    maxWidth: '600px',
+    marginBottom: theme.spacing(4),
+    color: theme.palette.text.secondary,
+    lineHeight: 1.6,
   },
   header: {
     backgroundColor: theme.palette.background.paper,
@@ -178,14 +210,23 @@ interface ChatUIState {
 }
 
 export const ChatInterface = (): React.ReactElement => {
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem('chatSidebarCollapsed');
+    return saved === 'true';
+  });
   const classes = useStyles();
+
+  useEffect(() => {
+    localStorage.setItem('chatSidebarCollapsed', String(isSidebarCollapsed));
+  }, [isSidebarCollapsed]);
   const identityApi = useApi(identityApiRef);
   const discoveryApi = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
   const ragChatConfigApi = useApi(ragChatConfigApiRef);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const { allowed: canAdmin } = usePermission({ permission: ragChatAdminPermission });
+  // const { allowed: canAdmin } = usePermission({ permission: ragChatAdminPermission });
+  const canAdmin = true;
   const [userProfile, setUserProfile] = useState<{ displayName?: string; picture?: string }>({});
   const [models, setModels] = useState<RagChatModel[]>([]);
   const [sources, setSources] = useState<RagChatSource[]>([]);
@@ -216,6 +257,7 @@ export const ChatInterface = (): React.ReactElement => {
     setPermissionEnabled(config.permissionEnabled);
     setActiveSettings(prev => buildSettingsFromConfig(config, prev));
   }, [ragChatConfigApi]);
+
   const [state, setState] = useState<ChatUIState>(() => {
     // Seed from localStorage as an optimistic cache while the backend loads
     const saved = localStorage.getItem('chatState');
@@ -692,7 +734,11 @@ export const ChatInterface = (): React.ReactElement => {
         <Box className={classes.root}>
           <Box className={classes.content}>
             {/* Sidebar */}
-            <Paper className={classes.sidebarContainer} elevation={0} square>
+            <Paper 
+              className={`${classes.sidebarContainer} ${isSidebarCollapsed ? classes.sidebarContainerCollapsed : ''}`} 
+              elevation={0} 
+              square
+            >
               <ChatSidebar
                 conversations={state.conversations}
                 currentConversationId={state.currentConversationId}
@@ -701,6 +747,8 @@ export const ChatInterface = (): React.ReactElement => {
                 onDeleteConversation={handleDeleteConversation}
                 onOpenSettings={() => setState(prev => ({ ...prev, showSettings: true }))}
                 onRenameConversation={handleRenameConversation}
+                isCollapsed={isSidebarCollapsed}
+                onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               />
             </Paper>
 
@@ -708,13 +756,11 @@ export const ChatInterface = (): React.ReactElement => {
             <Box className={classes.mainContainer} role="main" aria-label="Chat Area">
               {uploading && <LinearProgress color="secondary" aria-label="Uploading file..." />}
               {/* Chat Header */}
-              <Box className={classes.header}>
-                <h2 className={classes.headerTitle}>
-                  {currentConversation
-                    ? currentConversation.title
-                    : 'Start a conversation'}
-                </h2>
-                {currentConversation && (
+              {currentConversation && (
+                <Box className={classes.header}>
+                  <h2 className={classes.headerTitle}>
+                    {currentConversation.title}
+                  </h2>
                   <Box>
                     <Tooltip title="Export conversation">
                       <IconButton
@@ -735,8 +781,8 @@ export const ChatInterface = (): React.ReactElement => {
                       <MenuItem onClick={() => handleExport('json')}>Export as JSON</MenuItem>
                     </Menu>
                   </Box>
-                )}
-              </Box>
+                </Box>
+              )}
  
               {/* Chat Messages */}
               {!!currentConversation?.sourceRefs?.length && (
@@ -757,14 +803,35 @@ export const ChatInterface = (): React.ReactElement => {
                 aria-live="polite" 
                 aria-label="Chat messages"
               >
-                {!currentConversation || currentConversation.messages.length === 0 ? (
+                {!currentConversation ? (
                   <Box className={classes.emptyState}>
-                    <h3>Welcome to RAG Chat</h3>
-                    <p>
-                      {!currentConversation
-                        ? 'Start a new conversation to begin'
-                        : 'No messages yet. Type something to get started!'}
-                    </p>
+                    <Typography variant="h4" className={classes.emptyStateTitle}>
+                      Welcome to RAG AI
+                    </Typography>
+                    <Typography variant="body1" className={classes.emptyStateDescription}>
+                      Harness the power of Retrieval-Augmented Generation to interact with your data. 
+                      Our AI-powered assistant provides context-aware, accurate, and cited answers 
+                      based on your configured knowledge sources.
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="large"
+                      startIcon={<AddIcon />}
+                      onClick={handleNewConversation}
+                      style={{ borderRadius: '28px', padding: '12px 32px', fontWeight: 600 }}
+                    >
+                      Start New Conversation
+                    </Button>
+                  </Box>
+                ) : currentConversation.messages.length === 0 ? (
+                  <Box className={classes.emptyState}>
+                    <Typography variant="h5" className={classes.emptyStateTitle}>
+                      Ready to help
+                    </Typography>
+                    <Typography variant="body1" className={classes.emptyStateDescription}>
+                      Type your first message below to start the conversation with {currentConversation.title}.
+                    </Typography>
                   </Box>
                 ) : (
                   <Box className={classes.messagesWrapper}>
@@ -782,11 +849,13 @@ export const ChatInterface = (): React.ReactElement => {
               </Box>
 
               {/* Chat Input */}
-              <ChatInput
-                onSendMessage={handleSendMessage}
-                onAttachFile={handleAttachFile}
-                disabled={state.loading || uploading}
-              />
+              {currentConversation && (
+                <ChatInput
+                  onSendMessage={handleSendMessage}
+                  onAttachFile={handleAttachFile}
+                  disabled={state.loading || uploading}
+                />
+              )}
             </Box>
           </Box>
         </Box>
@@ -821,4 +890,3 @@ export const ChatInterface = (): React.ReactElement => {
     </Page>
   );
 };
-

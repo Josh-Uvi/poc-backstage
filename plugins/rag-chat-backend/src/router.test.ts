@@ -119,7 +119,7 @@ describe('createRouter', () => {
       expect(rag.retrieve).toHaveBeenCalledWith('What is Backstage?', ['catalog'], 3);
       expect(llm.stream).toHaveBeenCalledWith('gpt-4', expect.objectContaining({
         messages: expect.arrayContaining([
-          expect.objectContaining({ role: 'assistant', content: expect.stringContaining('Backstage is a platform.') }),
+          expect.objectContaining({ role: 'system', content: expect.stringContaining('Backstage is a platform.') }),
         ]),
       }));
     });

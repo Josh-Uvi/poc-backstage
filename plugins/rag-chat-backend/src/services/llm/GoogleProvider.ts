@@ -43,13 +43,12 @@ export class GoogleProvider implements LlmProvider {
   }
 
   #buildChat(request: LlmRequest) {
-    // Separate system context (assistant role) from the conversation history
-    const systemMessages = request.messages.filter(m => m.role === 'assistant');
-    const conversationMessages = request.messages.filter(m => m.role === 'user');
+    const systemMessages = request.messages.filter(m => m.role === 'system');
+    const conversationMessages = request.messages.filter(m => m.role !== 'system');
 
-    // Build history: all user/model turns except the last user message
+    // Build history: all user/model turns except the last message
     const history = conversationMessages.slice(0, -1).map(m => ({
-      role: 'user' as const,
+      role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
       parts: [{ text: m.content }],
     }));
 
