@@ -5641,6 +5641,38 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@backstage/test-utils@npm:^1.7.17":
+  version: 1.7.17
+  resolution: "@backstage/test-utils@npm:1.7.17"
+  dependencies:
+    "@backstage/config": "npm:^1.3.7"
+    "@backstage/core-app-api": "npm:^1.20.0"
+    "@backstage/core-plugin-api": "npm:^1.12.5"
+    "@backstage/plugin-permission-common": "npm:^0.9.8"
+    "@backstage/plugin-permission-react": "npm:^0.5.0"
+    "@backstage/theme": "npm:^0.7.3"
+    "@backstage/types": "npm:^1.2.2"
+    "@material-ui/core": "npm:^4.12.2"
+    "@material-ui/icons": "npm:^4.9.1"
+    cross-fetch: "npm:^4.0.0"
+    i18next: "npm:^22.4.15"
+    zen-observable: "npm:^0.10.0"
+  peerDependencies:
+    "@testing-library/react": ^16.0.0
+    "@types/jest": "*"
+    "@types/react": ^17.0.0 || ^18.0.0
+    react: ^17.0.0 || ^18.0.0
+    react-dom: ^17.0.0 || ^18.0.0
+    react-router-dom: ^6.30.2
+  peerDependenciesMeta:
+    "@types/jest":
+      optional: true
+    "@types/react":
+      optional: true
+  checksum: 10c0/5a194b0ff7af55b615d990354cd27306e59f4908a3f674f6da930789eb428e07099c8c3faefc92875bb562b86e73a6afa5f24b3763872b40a7dfa270e36c6aa4
+  languageName: node
+  linkType: hard
+
 "@backstage/theme@npm:^0.7.2":
   version: 0.7.2
   resolution: "@backstage/theme@npm:0.7.2"
@@ -6893,6 +6925,7 @@ __metadata:
     "@backstage/frontend-test-utils": "npm:^0.5.1"
     "@backstage/plugin-permission-common": "npm:^0.8.3"
     "@backstage/plugin-permission-react": "npm:^0.4.29"
+    "@backstage/test-utils": "npm:^1.7.17"
     "@backstage/theme": "npm:^0.7.2"
     "@material-ui/core": "npm:^4.9.13"
     "@material-ui/icons": "npm:^4.9.1"

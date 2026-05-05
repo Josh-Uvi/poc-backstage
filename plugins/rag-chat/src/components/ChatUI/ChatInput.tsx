@@ -123,6 +123,7 @@ export const ChatInput = ({
               className={classes.attachButton}
               disabled={disabled}
               onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach file"
             >
               <AttachFileIcon fontSize="small" />
             </IconButton>
@@ -142,6 +143,9 @@ export const ChatInput = ({
           className={classes.textField}
           variant="outlined"
           size="small"
+          inputProps={{
+            'aria-label': 'Type your message here',
+          }}
           InputProps={{
             endAdornment: (
               <InputAdornment position="end">
@@ -151,6 +155,7 @@ export const ChatInput = ({
                   className={classes.sendButton}
                   edge="end"
                   size="small"
+                  aria-label="Send message"
                 >
                   <SendIcon />
                 </IconButton>

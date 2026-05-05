@@ -10,6 +10,11 @@ export interface Message {
   timestamp: Date;
   streaming?: boolean;
   citations?: Citation[];
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 export interface UploadedSourceRef {

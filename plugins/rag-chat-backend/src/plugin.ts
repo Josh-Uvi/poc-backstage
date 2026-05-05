@@ -4,6 +4,7 @@ import {
 } from '@backstage/backend-plugin-api';
 import { createRouter } from './router';
 import { conversationServiceRef } from './services/ConversationService';
+import { userCredentialsServiceRef } from './services/UserCredentialsService';
 import { llmServiceRef } from './services/llm/LlmService';
 import { ragServiceRef } from './services/rag/RagService';
 import { ragChatPermissions } from './permissions';
@@ -19,6 +20,7 @@ export const ragChatPlugin = createBackendPlugin({
         permissions: coreServices.permissions,
         permissionsRegistry: coreServices.permissionsRegistry,
         conversations: conversationServiceRef,
+        userCredentials: userCredentialsServiceRef,
         llm: llmServiceRef,
         rag: ragServiceRef,
       },
@@ -29,6 +31,7 @@ export const ragChatPlugin = createBackendPlugin({
         permissions,
         permissionsRegistry,
         conversations,
+        userCredentials,
         llm,
         rag,
       }) {
@@ -45,6 +48,7 @@ export const ragChatPlugin = createBackendPlugin({
             permissions,
             permissionsEnabled,
             conversations,
+            userCredentials,
             llm,
             rag,
           }),

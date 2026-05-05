@@ -6,7 +6,7 @@ import {
   RootConfigService,
 } from '@backstage/backend-plugin-api';
 import { InputError } from '@backstage/errors';
-import { LlmProvider, LlmRequest, LlmResponse } from './LlmProvider';
+import { LlmProvider, LlmRequest, LlmResponse, LlmStreamEvent } from './LlmProvider';
 import { OpenAiProvider } from './OpenAiProvider';
 import { AnthropicProvider } from './AnthropicProvider';
 import { GoogleProvider } from './GoogleProvider';
@@ -61,7 +61,7 @@ export interface ILlmService {
     modelId: string,
     request: LlmRequest,
     runtimeConfig?: RuntimeModelConfig,
-  ): AsyncIterable<string>;
+  ): AsyncIterable<LlmStreamEvent>;
 }
 
 export class LlmService implements ILlmService {
@@ -158,7 +158,7 @@ export class LlmService implements ILlmService {
     modelId: string,
     request: LlmRequest,
     runtimeConfig?: RuntimeModelConfig,
-  ): AsyncIterable<string> {
+  ): AsyncIterable<LlmStreamEvent> {
     const provider = this.#resolveProvider(modelId, runtimeConfig);
     this.#logger.info(`LLM stream request`, { modelId, messageCount: request.messages.length });
     yield* provider.stream(request);

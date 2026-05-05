@@ -10,12 +10,14 @@ import { createRouter } from './router';
 import { ConversationService } from './services/ConversationService';
 import { ILlmService } from './services/llm/LlmService';
 import { IRagService } from './services/rag/RagService';
+import { IUserCredentialsService } from './services/UserCredentialsService';
 
 describe('createRouter', () => {
   let app: express.Express;
   let conversations: jest.Mocked<ConversationService>;
   let llm: jest.Mocked<ILlmService>;
   let rag: jest.Mocked<IRagService>;
+  let userCredentials: jest.Mocked<IUserCredentialsService>;
   let permissions: { authorize: jest.Mock };
 
   const mockConversation = {
@@ -43,10 +45,10 @@ describe('createRouter', () => {
 
     llm = {
       chat: jest.fn().mockResolvedValue(mockLlmResponse),
-      stream: jest.fn().mockImplementation(async function* () {
-        yield 'This ';
-        yield 'is ';
-        yield 'an assistant response.';
+      stream: jest.fn().mockImplementation(async function* mockStream() {
+        yield { type: 'token', token: 'This ' };
+        yield { type: 'token', token: 'is ' };
+        yield { type: 'token', token: 'an assistant response.' };
       }),
     };
     rag = {
@@ -57,12 +59,17 @@ describe('createRouter', () => {
     permissions = {
       authorize: jest.fn().mockResolvedValue([{ result: AuthorizeResult.ALLOW }]),
     };
+    userCredentials = {
+      saveCredentials: jest.fn(),
+      getCredentials: jest.fn().mockResolvedValue(undefined),
+    };
 
     const router = await createRouter({
       httpAuth: mockServices.httpAuth(),
       permissions: permissions as any,
       permissionsEnabled: true,
       conversations,
+      userCredentials,
       llm,
       rag,
     });
@@ -109,7 +116,7 @@ describe('createRouter', () => {
 
       expect(response.status).toBe(200);
       expect(rag.indexSource).toHaveBeenCalledWith('catalog', expect.anything());
-      expect(rag.retrieve).toHaveBeenCalledWith('What is Backstage?', ['catalog'], 5);
+      expect(rag.retrieve).toHaveBeenCalledWith('What is Backstage?', ['catalog'], 3);
       expect(llm.stream).toHaveBeenCalledWith('gpt-4', expect.objectContaining({
         messages: expect.arrayContaining([
           expect.objectContaining({ role: 'assistant', content: expect.stringContaining('Backstage is a platform.') }),
@@ -180,7 +187,7 @@ describe('createRouter', () => {
       expect(rag.retrieve).toHaveBeenCalledWith(
         'Use my upload',
         ['upload:conv-1:upload-1'],
-        5,
+        3,
       );
     });
   });

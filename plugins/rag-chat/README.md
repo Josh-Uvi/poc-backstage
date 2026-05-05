@@ -183,25 +183,25 @@ yarn start
 
 ### Medium Priority
 
-- [ ] **Move user-defined model tokens server-side**
+- [x] **Move user-defined model tokens server-side**
   - Storing `apiToken` in `localStorage` is insecure
   - Frontend should only send `modelId`; backend resolves the token
 
-- [ ] **Conversation search and filter**
+- [x] **Conversation search and filter**
   - Search input in the sidebar to filter by title or message content
 
-- [ ] **Rename conversation inline**
+- [x] **Rename conversation inline**
   - Double-click a conversation title in the sidebar to edit it in place
 
-- [ ] **Export conversation**
+- [x] **Export conversation**
   - Download the current conversation as Markdown or JSON
 
-- [ ] **Upload progress indicator**
+- [x] **Upload progress indicator**
   - Show a progress bar while a file is being uploaded and indexed
 
 ### Lower Priority
 
-- [ ] **Token / cost indicator** per message
-- [ ] **Keyboard shortcuts** (`Ctrl+K` new conversation, `Escape` close Settings)
-- [ ] **Accessibility audit** — ARIA labels, keyboard navigation
-- [ ] **Expand test coverage** — SSE stream consumption, `SettingsPanel` with `canAdmin=false`, `RagChatConfigClient` edge cases
+- [x] **Token / cost indicator** per message
+- [x] **Keyboard shortcuts** (`Ctrl+K` new conversation, `Escape` close Settings)
+- [x] **Accessibility audit** — ARIA labels, keyboard navigation
+- [x] **Expand test coverage** — SSE stream consumption, `SettingsPanel` with `canAdmin=false`, `RagChatConfigClient` edge cases

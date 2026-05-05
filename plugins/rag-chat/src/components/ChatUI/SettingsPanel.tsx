@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useApi, discoveryApiRef, fetchApiRef } from '@backstage/core-plugin-api';
 import { makeStyles } from '@material-ui/core/styles';
 import {
   Box,
@@ -152,6 +153,8 @@ export const SettingsPanel = ({
   canAdmin = true,
 }: SettingsPanelProps): React.ReactElement => {
   const classes = useStyles();
+  const discoveryApi = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
   const resolvedInitialSettings = useMemo<SettingsState>(() => {
     const initial = initialSettings as Partial<SettingsState> | undefined;
     const configuredModel = configModels.find(model => model.id === initial?.modelId);
@@ -192,65 +195,33 @@ export const SettingsPanel = ({
   const [settings, setSettings] = useState<SettingsState>(resolvedInitialSettings);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSource, setNewSource] = useState(emptySource());
-  const [chatOptions, setChatOptions] = useState<ModelOption[]>([]);
-  const [embeddingOptions, setEmbeddingOptions] = useState<ModelOption[]>([]);
+
   useEffect(() => {
     if (open) {
       setSettings(resolvedInitialSettings);
     }
   }, [open, resolvedInitialSettings]);
 
-  const configuredBaseUrlByProvider = useMemo(() => {
-    const byProvider = new Map<RagChatProvider, string>();
-    for (const model of configModels) {
-      if (model.apiBaseUrl) {
-        byProvider.set(model.provider, model.apiBaseUrl);
-      }
-    }
-    if (configEmbedding?.provider && configEmbedding.apiBaseUrl) {
-      byProvider.set(configEmbedding.provider, configEmbedding.apiBaseUrl);
-    }
-    return byProvider;
-  }, [configEmbedding, configModels]);
-
   const provider = settings.provider;
-  const effectiveApiBaseUrl =
-    provider === 'custom'
-      ? settings.apiBaseUrl ?? ''
-      : configuredBaseUrlByProvider.get(provider);
 
   const selectableSources = userSources;
+  const chatOptions = useMemo(() => uniqueOptions([
+    ...configModels
+      .filter(model => model.provider === provider)
+      .map(model => ({ id: model.id, label: model.name || model.id })),
+    ...(settings.modelId
+      ? [{ id: settings.modelId, label: settings.modelId }]
+      : []),
+  ]), [configModels, provider, settings.modelId]);
 
-  useEffect(() => {
-    const fallbackChatOptions = uniqueOptions([
-      ...configModels
-        .filter(model => model.provider === provider)
-        .map(model => ({ id: model.id, label: model.name || model.id })),
-      ...(settings.modelId
-        ? [{ id: settings.modelId, label: settings.modelId }]
-        : []),
-    ]);
-
-    const fallbackEmbeddingOptions = uniqueOptions([
-      ...(configEmbedding?.provider === provider && configEmbedding.model
-        ? [{ id: configEmbedding.model, label: configEmbedding.model }]
-        : []),
-      ...(settings.embeddingModelId
-        ? [{ id: settings.embeddingModelId, label: settings.embeddingModelId }]
-        : []),
-    ]);
-
-    setChatOptions(fallbackChatOptions);
-    setEmbeddingOptions(fallbackEmbeddingOptions);
-  }, [
-    configEmbedding,
-    configModels,
-    effectiveApiBaseUrl,
-    open,
-    provider,
-    settings.embeddingModelId,
-    settings.modelId,
-  ]);
+  const embeddingOptions = useMemo(() => uniqueOptions([
+    ...(configEmbedding?.provider === provider && configEmbedding.model
+      ? [{ id: configEmbedding.model, label: configEmbedding.model }]
+      : []),
+    ...(settings.embeddingModelId
+      ? [{ id: settings.embeddingModelId, label: settings.embeddingModelId }]
+      : []),
+  ]), [configEmbedding, provider, settings.embeddingModelId]);
 
   const handleChange = <K extends keyof SettingsState>(
     key: K,
@@ -312,11 +283,32 @@ export const SettingsPanel = ({
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // If user provided a token, save it securely to the backend
+    if (settings.apiToken) {
+      try {
+        const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
+        await fetchApi.fetch(`${baseUrl}/credentials`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelId: settings.modelId || 'default',
+            apiToken: settings.apiToken,
+            apiBaseUrl: settings.apiBaseUrl,
+          }),
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to save credentials to backend', error);
+      }
+    }
+
     // Strip sensitive fields before persisting to localStorage
     const { apiToken: _, apiBaseUrl: __, ...persistentSettings } = settings;
     localStorage.setItem('chatSettings', JSON.stringify(persistentSettings));
-    onSave?.(settings);
+
+    // Notify parent with sanitized settings
+    onSave?.(persistentSettings as SettingsState);
     onClose();
   };
 

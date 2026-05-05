@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApi, identityApiRef, discoveryApiRef, fetchApiRef } from '@backstage/core-plugin-api';
 import { usePermission } from '@backstage/plugin-permission-react';
 import { ragChatAdminPermission } from '../../permissions';
@@ -7,18 +7,21 @@ import {
   Box,
   Paper,
   CircularProgress,
+  LinearProgress,
   Snackbar,
+  Chip,
   IconButton,
   Tooltip,
-  Chip,
+  Menu,
+  MenuItem,
 } from '@material-ui/core';
+import GetAppIcon from '@material-ui/icons/GetApp';
 import { Alert } from '@material-ui/lab';
 import {
   Page,
   Header,
   Content,
 } from '@backstage/core-components';
-import SettingsIcon from '@material-ui/icons/Settings';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ChatSidebar } from './ChatSidebar';
@@ -73,80 +76,6 @@ const buildSettingsFromConfig = (
   };
 };
 
-const buildRuntimeEmbeddingConfig = (options: {
-  activeSettings: SettingsState;
-  embeddingConfig?: RagChatEmbeddingConfig;
-}):
-  | {
-      provider: string;
-      apiToken: string;
-      apiBaseUrl?: string;
-      model: string;
-    }
-  | undefined => {
-  const { activeSettings, embeddingConfig } = options;
-
-  if (activeSettings.apiToken) {
-    return {
-      provider: activeSettings.provider,
-      apiToken: activeSettings.apiToken,
-      apiBaseUrl: activeSettings.apiBaseUrl,
-      model: activeSettings.embeddingModelId,
-    };
-  }
-
-  if (!embeddingConfig?.apiToken) {
-    return undefined;
-  }
-
-  const apiBaseUrl =
-    activeSettings.provider === 'custom'
-      ? activeSettings.apiBaseUrl
-      : embeddingConfig?.apiBaseUrl;
-
-  return {
-    provider: activeSettings.provider,
-    apiToken: embeddingConfig.apiToken,
-    apiBaseUrl,
-    model: activeSettings.embeddingModelId,
-  };
-};
-
-const buildRuntimeModelConfig = (options: {
-  activeSettings: SettingsState;
-  selectedConfigModel?: RagChatModel;
-}):
-  | {
-      provider?: string;
-      apiToken: string;
-      apiBaseUrl?: string;
-    }
-  | undefined => {
-  const { activeSettings, selectedConfigModel } = options;
-
-  if (activeSettings.apiToken) {
-    return {
-      provider: activeSettings.provider,
-      apiToken: activeSettings.apiToken,
-      apiBaseUrl: activeSettings.apiBaseUrl,
-    };
-  }
-
-  if (!selectedConfigModel?.apiToken) {
-    return undefined;
-  }
-
-  const apiBaseUrl =
-    activeSettings.provider === 'custom'
-      ? activeSettings.apiBaseUrl
-      : selectedConfigModel?.apiBaseUrl;
-
-  return {
-    provider: selectedConfigModel?.provider ?? activeSettings.provider,
-    apiToken: selectedConfigModel.apiToken,
-    apiBaseUrl,
-  };
-};
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -261,6 +190,7 @@ export const ChatInterface = (): React.ReactElement => {
   const [models, setModels] = useState<RagChatModel[]>([]);
   const [sources, setSources] = useState<RagChatSource[]>([]);
   const [embeddingConfig, setEmbeddingConfig] = useState<RagChatEmbeddingConfig | undefined>();
+  const [exportAnchorEl, setExportAnchorEl] = useState<null | HTMLElement>(null);
   const [activeSettings, setActiveSettings] = useState<SettingsState>(() => {
     const config = ragChatConfigApi.getConfig();
     const saved = localStorage.getItem('chatSettings');
@@ -273,22 +203,6 @@ export const ChatInterface = (): React.ReactElement => {
   // When permissions are disabled everyone is treated as admin
   const effectiveCanAdmin = !permissionEnabled || canAdmin;
 
-  // Cleanup sensitive data from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('chatSettings');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.apiToken || parsed.apiBaseUrl) {
-          delete parsed.apiToken;
-          delete parsed.apiBaseUrl;
-          localStorage.setItem('chatSettings', JSON.stringify(parsed));
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  }, []);
 
   useEffect(() => {
     identityApi.getProfileInfo().then(profile => setUserProfile(profile));
@@ -308,16 +222,16 @@ export const ChatInterface = (): React.ReactElement => {
     return saved
       ? JSON.parse(saved)
       : {
-          conversations: [],
-          currentConversationId: null,
-          showSettings: false,
-          loading: false,
-          snackbar: {
-            open: false,
-            message: '',
-            severity: 'info' as const,
-          },
-        };
+        conversations: [],
+        currentConversationId: null,
+        showSettings: false,
+        loading: false,
+        snackbar: {
+          open: false,
+          message: '',
+          severity: 'info' as const,
+        },
+      };
   });
 
   // Fetch conversations from the backend on mount and replace localStorage cache
@@ -337,6 +251,7 @@ export const ChatInterface = (): React.ReactElement => {
             sender: m.role as 'user' | 'assistant',
             timestamp: new Date(m.timestamp),
             citations: m.citations,
+            usage: m.usage,
           })),
           sourceRefs: [],
           createdAt: new Date(c.createdAt),
@@ -371,7 +286,7 @@ export const ChatInterface = (): React.ReactElement => {
     localStorage.setItem('chatState', JSON.stringify(state));
   }, [state]);
 
-  const showSnackbar = (
+  const showSnackbar = useCallback((
     message: string,
     severity: 'success' | 'error' | 'info' | 'warning' = 'info',
   ) => {
@@ -383,13 +298,9 @@ export const ChatInterface = (): React.ReactElement => {
         severity,
       },
     }));
-  };
+  }, []);
 
-  const currentConversation = state.conversations.find(
-    c => c.id === state.currentConversationId,
-  );
-
-  const handleNewConversation = async () => {
+  const handleNewConversation = useCallback(async () => {
     const newConversation: Conversation = {
       id: `conv_${Date.now()}`,
       title: 'New Conversation',
@@ -419,7 +330,23 @@ export const ChatInterface = (): React.ReactElement => {
     }
 
     showSnackbar('New conversation created', 'success');
-  };
+  }, [discoveryApi, fetchApi, showSnackbar]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        handleNewConversation();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [handleNewConversation]);
+
+  const currentConversation = state.conversations.find(
+    c => c.id === state.currentConversationId,
+  );
 
   const ensureConversation = async (fallbackTitle: string): Promise<string> => {
     let conversation = state.conversations.find(c => c.id === state.currentConversationId);
@@ -471,15 +398,8 @@ export const ChatInterface = (): React.ReactElement => {
       const conversationId = await ensureConversation('New Conversation');
       const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
       const formData = new FormData();
-      const runtimeEmbedding = buildRuntimeEmbeddingConfig({
-        activeSettings,
-        embeddingConfig,
-      });
       formData.append('file', file);
       formData.append('conversationId', conversationId);
-      if (runtimeEmbedding) {
-        formData.append('runtimeEmbedding', JSON.stringify(runtimeEmbedding));
-      }
 
       const response = await fetchApi.fetch(`${baseUrl}/upload`, {
         method: 'POST',
@@ -573,16 +493,6 @@ export const ChatInterface = (): React.ReactElement => {
         );
       }
 
-      const selectedConfigModel = models.find(model => model.id === modelId);
-      const runtimeModel = buildRuntimeModelConfig({
-        activeSettings,
-        selectedConfigModel,
-      });
-      const runtimeEmbedding = buildRuntimeEmbeddingConfig({
-        activeSettings,
-        embeddingConfig,
-      });
-
       const response = await fetchApi.fetch(`${baseUrl}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -592,8 +502,6 @@ export const ChatInterface = (): React.ReactElement => {
           sourceIds: activeSettings.activeSourceIds ?? [],
           conversationId: convId,
           temperature: activeSettings.temperature ?? 0.7,
-          ...(runtimeModel ? { runtimeModel } : {}),
-          ...(runtimeEmbedding ? { runtimeEmbedding } : {}),
         }),
         signal: abort.signal,
       });
@@ -641,7 +549,7 @@ export const ChatInterface = (): React.ReactElement => {
                 conv.id !== convId ? conv : {
                   ...conv,
                   messages: conv.messages.map(msg =>
-                    msg.id !== assistantMessageId ? msg : { ...msg, streaming: false, citations: event.citations },
+                    msg.id !== assistantMessageId ? msg : { ...msg, streaming: false, citations: event.citations, usage: event.usage },
                   ),
                 },
               ),
@@ -708,6 +616,65 @@ export const ChatInterface = (): React.ReactElement => {
     }));
   };
 
+  const handleRenameConversation = async (id: string, newTitle: string) => {
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      conversations: prev.conversations.map(c =>
+        c.id === id ? { ...c, title: newTitle } : c,
+      ),
+    }));
+
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
+      const res = await fetchApi.fetch(`${baseUrl}/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, title: newTitle }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+    } catch {
+      showSnackbar('Failed to rename conversation', 'error');
+    }
+  };
+
+  const handleExport = (format: 'json' | 'markdown') => {
+    setExportAnchorEl(null);
+    if (!currentConversation) return;
+
+    let content: string;
+    let extension: string;
+    let mimeType: string;
+
+    if (format === 'json') {
+      content = JSON.stringify(currentConversation, null, 2);
+      extension = 'json';
+      mimeType = 'application/json';
+    } else {
+      content = `# ${currentConversation.title}\n\n`;
+      content += `Generated: ${new Date().toLocaleString()}\n\n---\n\n`;
+      currentConversation.messages.forEach(msg => {
+        content += `### ${msg.sender === 'user' ? 'User' : 'Assistant'}\n`;
+        content += `${msg.content}\n\n`;
+        if (msg.citations?.length) {
+          content += `*Sources: ${msg.citations.map(c => c.metadata.title ?? c.metadata.sourceId).join(', ')}*\n\n`;
+        }
+      });
+      extension = 'md';
+      mimeType = 'text/markdown';
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversation-${currentConversation.id}.${extension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleCloseSnackbar = () => {
     setState(prev => ({
       ...prev,
@@ -732,11 +699,14 @@ export const ChatInterface = (): React.ReactElement => {
                 onSelectConversation={handleSelectConversation}
                 onNewConversation={handleNewConversation}
                 onDeleteConversation={handleDeleteConversation}
+                onOpenSettings={() => setState(prev => ({ ...prev, showSettings: true }))}
+                onRenameConversation={handleRenameConversation}
               />
             </Paper>
 
             {/* Main Chat Area */}
-            <Box className={classes.mainContainer}>
+            <Box className={classes.mainContainer} role="main" aria-label="Chat Area">
+              {uploading && <LinearProgress color="secondary" aria-label="Uploading file..." />}
               {/* Chat Header */}
               <Box className={classes.header}>
                 <h2 className={classes.headerTitle}>
@@ -744,22 +714,30 @@ export const ChatInterface = (): React.ReactElement => {
                     ? currentConversation.title
                     : 'Start a conversation'}
                 </h2>
-                <Tooltip title="Settings">
-                  <IconButton
-                    size="small"
-                    className={classes.settingsButton}
-                    onClick={() =>
-                      setState(prev => ({
-                        ...prev,
-                        showSettings: true,
-                      }))
-                    }
-                  >
-                    <SettingsIcon />
-                  </IconButton>
-                </Tooltip>
+                {currentConversation && (
+                  <Box>
+                    <Tooltip title="Export conversation">
+                      <IconButton
+                        size="small"
+                        onClick={e => setExportAnchorEl(e.currentTarget)}
+                        aria-label="Export conversation options"
+                        aria-haspopup="true"
+                      >
+                        <GetAppIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Menu
+                      anchorEl={exportAnchorEl}
+                      open={Boolean(exportAnchorEl)}
+                      onClose={() => setExportAnchorEl(null)}
+                    >
+                      <MenuItem onClick={() => handleExport('markdown')}>Export as Markdown</MenuItem>
+                      <MenuItem onClick={() => handleExport('json')}>Export as JSON</MenuItem>
+                    </Menu>
+                  </Box>
+                )}
               </Box>
-
+ 
               {/* Chat Messages */}
               {!!currentConversation?.sourceRefs?.length && (
                 <Box className={classes.sourceRefs}>
@@ -773,7 +751,12 @@ export const ChatInterface = (): React.ReactElement => {
                   ))}
                 </Box>
               )}
-              <Box className={classes.chatContainer}>
+              <Box 
+                className={classes.chatContainer} 
+                role="log" 
+                aria-live="polite" 
+                aria-label="Chat messages"
+              >
                 {!currentConversation || currentConversation.messages.length === 0 ? (
                   <Box className={classes.emptyState}>
                     <h3>Welcome to RAG Chat</h3>
@@ -789,8 +772,8 @@ export const ChatInterface = (): React.ReactElement => {
                       <ChatMessage key={msg.id} message={msg} userProfile={userProfile} />
                     ))}
                     {state.loading && (
-                      <Box className={classes.loadingContainer}>
-                        <CircularProgress size={24} />
+                      <Box className={classes.loadingContainer} aria-live="polite" aria-busy="true">
+                        <CircularProgress size={24} aria-label="Loading response..." />
                       </Box>
                     )}
                     <div ref={chatEndRef} />

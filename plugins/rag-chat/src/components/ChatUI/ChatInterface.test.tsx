@@ -123,6 +123,15 @@ describe('ChatInterface', () => {
     window.HTMLElement.prototype.scrollIntoView = jest.fn();
   });
 
+  const setupConversation = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /new conversation/i }));
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
+    );
+    // MUI multiline TextField renders a <textarea> — return it directly
+    return screen.getByPlaceholderText(/type your message/i) as HTMLTextAreaElement;
+  };
+
   // ── Rendering ──────────────────────────────────────────────────────────────
 
   describe('rendering', () => {
@@ -480,14 +489,6 @@ describe('ChatInterface', () => {
   // ── Chat SSE streaming ────────────────────────────────────────────────────
 
   describe('chat SSE streaming', () => {
-    const setupConversation = async () => {
-      fireEvent.click(screen.getByRole('button', { name: /new conversation/i }));
-      await waitFor(() =>
-        expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
-      );
-      // MUI multiline TextField renders a <textarea> — return it directly
-      return screen.getByPlaceholderText(/type your message/i) as HTMLTextAreaElement;
-    };
 
     it('appends streamed tokens to the assistant bubble', async () => {
       const fetchApi = makeChatFetchApi([
@@ -649,6 +650,114 @@ describe('ChatInterface', () => {
       await waitFor(() =>
         expect(screen.queryByText('Cancel')).not.toBeInTheDocument(),
       );
+    });
+    it('displays token usage and estimated cost after completion', async () => {
+      const fetchApi = makeChatFetchApi([
+        { type: 'token', token: 'Hello' },
+        {
+          type: 'done',
+          conversationId: 'conv-1',
+          messageId: 'msg-1',
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      ]);
+
+      await renderApp(fetchApi);
+
+      const input = await setupConversation();
+      await sendMessage(input, 'Hi');
+
+      await waitFor(() => {
+        expect(screen.getByText(/Tokens:/i)).toBeInTheDocument();
+        expect(screen.getByText(/10 \+ 5 = 15/i)).toBeInTheDocument();
+        expect(screen.getByText(/Cost:/i)).toBeInTheDocument();
+        expect(screen.getByText(/< \$0.00001/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ── Search and Filter ──────────────────────────────────────────────────────
+  describe('search and filter', () => {
+    it('filters conversations by title', async () => {
+      const fetchApi = makeFetchApi({
+        '/conversations': () =>
+          new Response(
+            JSON.stringify({
+              items: [
+                { id: '1', title: 'React Hooks', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+                { id: '2', title: 'TypeScript Basics', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+              ],
+            }),
+            { status: 200 },
+          ),
+      });
+
+      const user = userEvent.setup();
+      await renderApp(fetchApi);
+
+      await waitFor(() => expect(screen.getByText('React Hooks')).toBeInTheDocument());
+      expect(screen.getByText('TypeScript Basics')).toBeInTheDocument();
+
+      const searchInput = screen.getByPlaceholderText(/search chats/i);
+      await user.type(searchInput, 'React');
+
+      expect(screen.getByText('React Hooks')).toBeInTheDocument();
+      expect(screen.queryByText('TypeScript Basics')).not.toBeInTheDocument();
+    });
+
+    it('filters conversations by message content', async () => {
+      const fetchApi = makeFetchApi({
+        '/conversations': () =>
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: '1',
+                  title: 'Chat A',
+                  messages: [{ id: 'm1', role: 'user', content: 'Hidden gem', timestamp: new Date().toISOString() }],
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString()
+                },
+                { id: '2', title: 'Chat B', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+              ],
+            }),
+            { status: 200 },
+          ),
+      });
+
+      const user = userEvent.setup();
+      await renderApp(fetchApi);
+
+      await waitFor(() => expect(screen.getByText('Chat A')).toBeInTheDocument());
+      
+      const searchInput = screen.getByPlaceholderText(/search chats/i);
+      await user.type(searchInput, 'gem');
+
+      expect(screen.getByText('Chat A')).toBeInTheDocument();
+      expect(screen.queryByText('Chat B')).not.toBeInTheDocument();
+    });
+
+    it('shows empty state when no matches are found', async () => {
+      const fetchApi = makeFetchApi({
+        '/conversations': () =>
+          new Response(
+            JSON.stringify({
+              items: [{ id: '1', title: 'General', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+            }),
+            { status: 200 },
+          ),
+      });
+
+      const user = userEvent.setup();
+      await renderApp(fetchApi);
+
+      await waitFor(() => expect(screen.getByText('General')).toBeInTheDocument());
+
+      const searchInput = screen.getByPlaceholderText(/search chats/i);
+      await user.type(searchInput, 'NothingMatchesThis');
+
+      expect(screen.getByText(/no matches found/i)).toBeInTheDocument();
+      expect(screen.queryByText('General')).not.toBeInTheDocument();
     });
   });
 

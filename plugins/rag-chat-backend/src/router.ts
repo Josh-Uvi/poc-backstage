@@ -6,6 +6,7 @@ import { z } from 'zod/v3';
 import express from 'express';
 import Router from 'express-promise-router';
 import { IConversationService } from './services/ConversationService';
+import { IUserCredentialsService } from './services/UserCredentialsService';
 import { ILlmService } from './services/llm/LlmService';
 import {
   IRagService,
@@ -61,6 +62,7 @@ export async function createRouter({
   permissions,
   permissionsEnabled,
   conversations,
+  userCredentials,
   llm,
   rag,
 }: {
@@ -68,6 +70,7 @@ export async function createRouter({
   permissions: PermissionsService;
   permissionsEnabled: boolean;
   conversations: IConversationService;
+  userCredentials: IUserCredentialsService;
   llm: ILlmService;
   rag: IRagService;
 }): Promise<express.Router> {
@@ -158,6 +161,7 @@ export async function createRouter({
       ? req.body.conversationId
       : undefined;
     const runtimeEmbedding = parseRuntimeEmbedding(req.body?.runtimeEmbedding);
+    const modelId = runtimeEmbedding?.model ?? 'default';
 
     if (!conversationId) {
       throw new InputError('conversationId is required');
@@ -195,8 +199,11 @@ export async function createRouter({
       },
     };
 
-    if (runtimeEmbedding) {
-      await rag.indexDocument(documentOptions, runtimeEmbedding);
+    const storedCredentials = await userCredentials.getCredentials(userRef, modelId);
+    const effectiveEmbedding = runtimeEmbedding || storedCredentials;
+
+    if (effectiveEmbedding) {
+      await rag.indexDocument(documentOptions, effectiveEmbedding as any);
     } else {
       await rag.indexDocument(documentOptions);
     }
@@ -252,6 +259,12 @@ export async function createRouter({
       runtimeEmbedding,
     } = parsed.data;
 
+    const storedModelCreds = await userCredentials.getCredentials(userRef, modelId);
+    const effectiveModel = runtimeModel || storedModelCreds;
+
+    const storedEmbeddingCreds = await userCredentials.getCredentials(userRef, 'default');
+    const effectiveEmbedding = runtimeEmbedding || storedEmbeddingCreds;
+
     const existingConv = await resolveConversation(
       userRef,
       conversationId,
@@ -272,8 +285,8 @@ export async function createRouter({
 
     // Index requested configured sources (lazy)
     for (const sourceId of sourceIds) {
-      if (runtimeEmbedding) {
-        await rag.indexSource(sourceId, credentials, runtimeEmbedding);
+      if (effectiveEmbedding) {
+        await rag.indexSource(sourceId, credentials, effectiveEmbedding as any);
       } else {
         await rag.indexSource(sourceId, credentials);
       }
@@ -282,8 +295,8 @@ export async function createRouter({
     // Retrieve relevant context chunks
     let contextChunks: RetrievedContext[] = [];
     if (retrievalSourceIds.length) {
-      contextChunks = runtimeEmbedding
-        ? await rag.retrieve(message, retrievalSourceIds, 3, runtimeEmbedding)
+      contextChunks = effectiveEmbedding
+        ? await rag.retrieve(message, retrievalSourceIds, 3, effectiveEmbedding as any)
         : await rag.retrieve(message, retrievalSourceIds, 3);
     }
 
@@ -323,15 +336,20 @@ export async function createRouter({
 
     const assistantMessageId = `msg_${Date.now()}_assistant`;
     let fullContent = '';
+    let usage: any = undefined;
 
     try {
-      const stream = runtimeModel
-        ? llm.stream(modelId, { messages: llmMessages, temperature }, runtimeModel)
+      const stream = effectiveModel
+        ? llm.stream(modelId, { messages: llmMessages, temperature }, effectiveModel as any)
         : llm.stream(modelId, { messages: llmMessages, temperature });
 
-      for await (const token of stream) {
-        fullContent += token;
-        sendEvent({ type: 'token', token });
+      for await (const event of stream) {
+        if (event.type === 'token') {
+          fullContent += event.token;
+          sendEvent({ type: 'token', token: event.token });
+        } else if (event.type === 'usage') {
+          usage = event.usage;
+        }
       }
 
       const assistantMessage = {
@@ -339,6 +357,7 @@ export async function createRouter({
         role: 'assistant' as const,
         content: fullContent,
         timestamp: new Date().toISOString(),
+        usage,
       };
 
       await conversations.upsertConversation(
@@ -358,6 +377,7 @@ export async function createRouter({
         conversationId: convId,
         messageId: assistantMessageId,
         citations: isGeneralChat ? [] : contextChunks,
+        usage,
       });
     } catch (e: any) {
       sendEvent({ type: 'error', error: e?.message ?? 'Unknown error' });
@@ -406,6 +426,27 @@ export async function createRouter({
     const credentials = await requirePermission(req, ragChatChatPermission);
     const userRef = credentials.principal.userEntityRef;
     await conversations.deleteConversation(req.params.id, userRef);
+    res.status(204).send();
+  });
+
+  /**
+   * POST /credentials
+   * Saves user-specific API tokens for a model.
+   */
+  router.post('/credentials', async (req, res) => {
+    const credentials = await requirePermission(req, ragChatChatPermission);
+    const userRef = credentials.principal.userEntityRef;
+
+    const { modelId, apiToken, apiBaseUrl } = req.body;
+    if (!modelId || !apiToken) {
+      throw new InputError('modelId and apiToken are required');
+    }
+
+    await userCredentials.saveCredentials(userRef, modelId, {
+      apiToken,
+      apiBaseUrl,
+    });
+
     res.status(204).send();
   });
 

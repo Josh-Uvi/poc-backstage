@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState, useMemo, Fragment, KeyboardEvent } from 'react';
 import { makeStyles } from '@material-ui/core/styles';
 import {
   Box,
@@ -11,10 +11,16 @@ import {
   Paper,
   Typography,
   Tooltip,
+  Input,
+  TextField,
+  InputAdornment,
 } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Delete';
 import AddIcon from '@material-ui/icons/Add';
 import ChatIcon from '@material-ui/icons/Chat';
+import SettingsIcon from '@material-ui/icons/Settings';
+import SearchIcon from '@material-ui/icons/Search';
+import ClearIcon from '@material-ui/icons/Clear';
 import { Conversation } from './types';
 
 const useStyles = makeStyles(theme => ({
@@ -100,6 +106,13 @@ const useStyles = makeStyles(theme => ({
     marginBottom: theme.spacing(1),
     opacity: 0.3,
   },
+  settingsButton: {
+    color: theme.palette.text.secondary,
+  },
+  searchContainer: {
+    padding: theme.spacing(1, 2),
+    borderBottom: `1px solid ${theme.palette.divider}`,
+  },
 }));
 
 interface ChatSidebarProps {
@@ -108,6 +121,8 @@ interface ChatSidebarProps {
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   onDeleteConversation: (id: string) => void;
+  onOpenSettings: () => void;
+  onRenameConversation: (id: string, newTitle: string) => void;
 }
 
 export const ChatSidebar = ({
@@ -116,8 +131,27 @@ export const ChatSidebar = ({
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
+  onOpenSettings,
+  onRenameConversation,
 }: ChatSidebarProps): React.ReactElement => {
   const classes = useStyles();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredConversations = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return conversations;
+
+    return conversations.filter(conv => {
+      // Check title
+      if (conv.title.toLowerCase().includes(query)) return true;
+      // Check messages
+      return (conv.messages || []).some(msg =>
+        msg.content.toLowerCase().includes(query)
+      );
+    });
+  }, [conversations, searchQuery]);
 
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -132,6 +166,26 @@ export const ChatSidebar = ({
     if (days < 7) return `${days}d ago`;
     return new Date(date).toLocaleDateString();
   };
+ 
+  const handleStartRename = (conv: Conversation) => {
+    setRenamingId(conv.id);
+    setRenamingValue(conv.title);
+  };
+ 
+  const handleSaveRename = () => {
+    if (renamingId && renamingValue.trim()) {
+      onRenameConversation(renamingId, renamingValue.trim());
+    }
+    setRenamingId(null);
+  };
+ 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSaveRename();
+    } else if (e.key === 'Escape') {
+      setRenamingId(null);
+    }
+  };
 
   return (
     <Paper className={classes.sidebarContainer} elevation={0} square>
@@ -144,13 +198,54 @@ export const ChatSidebar = ({
             size="small"
             onClick={onNewConversation}
             className={classes.newChatButton}
+            aria-label="New conversation"
           >
             <AddIcon />
           </IconButton>
         </Tooltip>
+        <Tooltip title="Settings">
+          <IconButton
+            size="small"
+            className={classes.settingsButton}
+            onClick={onOpenSettings}
+            aria-label="Settings"
+          >
+            <SettingsIcon />
+          </IconButton>
+        </Tooltip>
       </Box>
 
-      {conversations.length === 0 ? (
+      {conversations.length > 0 && (
+        <Box className={classes.searchContainer}>
+          <TextField
+            fullWidth
+            size="small"
+            variant="outlined"
+            placeholder="Search chats..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            inputProps={{
+              'aria-label': 'Search conversations',
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" style={{ opacity: 0.5 }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery && (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchQuery('')} aria-label="Clear search">
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+      )}
+
+      {conversations.length === 0 && (
         <Box className={classes.emptyState}>
           <ChatIcon className={classes.emptyIcon} />
           <Typography variant="body2">No conversations yet</Typography>
@@ -158,32 +253,61 @@ export const ChatSidebar = ({
             Start a new conversation to begin
           </Typography>
         </Box>
-      ) : (
+      )}
+      
+      {conversations.length > 0 && filteredConversations.length === 0 && (
+        <Box className={classes.emptyState}>
+          <SearchIcon className={classes.emptyIcon} />
+          <Typography variant="body2">No matches found</Typography>
+          <Typography variant="caption">
+            Try a different search term
+          </Typography>
+        </Box>
+      )}
+
+      {conversations.length > 0 && filteredConversations.length > 0 && (
         <List className={classes.conversationList} dense>
-          {conversations.map((conv, index) => (
-            <React.Fragment key={conv.id}>
+          {filteredConversations.map((conv, index) => (
+            <Fragment key={conv.id}>
               <ListItem
                 button
                 onClick={() => onSelectConversation(conv.id)}
-                className={`${classes.listItem} ${
-                  classes.listItemHover
-                } ${
-                  currentConversationId === conv.id ? classes.activeListItem : ''
-                }`}
+                className={`${classes.listItem} ${classes.listItemHover
+                  } ${currentConversationId === conv.id ? classes.activeListItem : ''
+                  }`}
+                aria-label={`Conversation: ${conv.title}`}
               >
                 <ListItemIcon>
                   <ChatIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText
-                  primary={conv.title}
-                  secondary={formatDate(conv.updatedAt)}
-                  className={classes.listItemText}
-                />
+                {renamingId === conv.id ? (
+                  <Input
+                    inputRef={input => input?.focus()}
+                    fullWidth
+                    value={renamingValue}
+                    onChange={e => setRenamingValue(e.target.value)}
+                    onBlur={handleSaveRename}
+                    onKeyDown={handleKeyDown}
+                    onClick={e => e.stopPropagation()}
+                    className={classes.listItemText}
+                    inputProps={{
+                      'aria-label': 'Rename conversation',
+                    }}
+                  />
+                ) : (
+                  <ListItemText
+                    primary={conv.title}
+                    secondary={formatDate(conv.updatedAt)}
+                    className={classes.listItemText}
+                    onDoubleClick={() => handleStartRename(conv)}
+                  />
+                )}
                 <Tooltip title="Delete conversation">
                   <IconButton
                     edge="end"
                     size="small"
                     className={classes.deleteButton}
+                    aria-label={`Delete conversation: ${conv.title}`}
                     onClick={e => {
                       e.stopPropagation();
                       onDeleteConversation(conv.id);
@@ -196,7 +320,7 @@ export const ChatSidebar = ({
               {index < conversations.length - 1 && (
                 <Divider variant="inset" component="li" />
               )}
-            </React.Fragment>
+            </Fragment>
           ))}
         </List>
       )}

@@ -14,6 +14,11 @@ export interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 export interface ConversationSourceRef {
@@ -79,6 +84,9 @@ interface MessageRow {
   role: string;
   content: string;
   timestamp: string;
+  usage_prompt_tokens: number | null;
+  usage_completion_tokens: number | null;
+  usage_total_tokens: number | null;
 }
 
 interface ConversationSourceRow {
@@ -226,6 +234,9 @@ export class ConversationService implements IConversationService {
             role: m.role,
             content: m.content,
             timestamp: m.timestamp,
+            usage_prompt_tokens: m.usage?.promptTokens ?? null,
+            usage_completion_tokens: m.usage?.completionTokens ?? null,
+            usage_total_tokens: m.usage?.totalTokens ?? null,
           })),
         );
       }
@@ -273,6 +284,11 @@ export class ConversationService implements IConversationService {
         role: m.role as 'user' | 'assistant',
         content: m.content,
         timestamp: m.timestamp,
+        usage: m.usage_prompt_tokens !== null ? {
+          promptTokens: m.usage_prompt_tokens!,
+          completionTokens: m.usage_completion_tokens!,
+          totalTokens: m.usage_total_tokens!,
+        } : undefined,
       })),
     };
   }

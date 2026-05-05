@@ -65,6 +65,19 @@ const useStyles = makeStyles(theme => ({
   timestampUser: {
     textAlign: 'right',
   },
+  usageInfo: {
+    fontSize: '0.65rem',
+    color: theme.palette.text.hint,
+    marginTop: theme.spacing(0.25),
+    display: 'flex',
+    gap: theme.spacing(1),
+    opacity: 0.8,
+  },
+  usageLabel: {
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.02em',
+  },
   cursor: {
     display: 'inline-block',
     width: 2,
@@ -142,6 +155,16 @@ export const ChatMessage = ({ message, userProfile }: ChatMessageProps): React.R
     ? userProfile.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : '?';
 
+  const calculateCost = (usage: Message['usage']) => {
+    if (!usage) return null;
+    // Estimated costs (approximate $/1M tokens based on common cheap models like Gemini Flash)
+    const promptCost = (usage.promptTokens / 1_000_000) * 0.15;
+    const completionCost = (usage.completionTokens / 1_000_000) * 0.60;
+    const total = promptCost + completionCost;
+    if (total < 0.00001) return '< $0.00001';
+    return `$${total.toFixed(5)}`;
+  };
+
   return (
     <Box className={`${classes.messageContainer} ${isUser ? classes.userMessage : ''}`}>
       <Avatar
@@ -203,16 +226,28 @@ export const ChatMessage = ({ message, userProfile }: ChatMessageProps): React.R
           </Box>
         )}
 
-        <Typography
-          variant="caption"
-          className={`${classes.timestamp} ${isUser ? classes.timestampUser : ''}`}
-          display="block"
-        >
-          {new Date(message.timestamp).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Typography>
+        <Box style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography
+            variant="caption"
+            className={`${classes.timestamp} ${isUser ? classes.timestampUser : ''}`}
+          >
+            {new Date(message.timestamp).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Typography>
+
+          {!isUser && message.usage && (
+            <Box className={classes.usageInfo}>
+              <span>
+                <span className={classes.usageLabel}>Tokens:</span> {message.usage.promptTokens} + {message.usage.completionTokens} = {message.usage.totalTokens}
+              </span>
+              <span>
+                <span className={classes.usageLabel}>Cost:</span> {calculateCost(message.usage)}
+              </span>
+            </Box>
+          )}
+        </Box>
       </Box>
     </Box>
   );

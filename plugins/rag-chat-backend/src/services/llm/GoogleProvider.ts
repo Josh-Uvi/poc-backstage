@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { LlmProvider, LlmRequest, LlmResponse } from './LlmProvider';
+import { LlmProvider, LlmRequest, LlmResponse, LlmStreamEvent } from './LlmProvider';
 
 export class GoogleProvider implements LlmProvider {
   readonly #client: GoogleGenAI;
@@ -14,15 +14,31 @@ export class GoogleProvider implements LlmProvider {
     const { chat, lastMessage } = this.#buildChat(request);
     const response = await chat.sendMessage({ message: lastMessage });
     const content = response.text ?? '';
-    return { content, modelId: this.#modelId };
+    const usage = response.usageMetadata ? {
+      promptTokens: response.usageMetadata.promptTokenCount ?? 0,
+      completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
+      totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+    } : undefined;
+    return { content, modelId: this.#modelId, usage };
   }
 
-  async *stream(request: LlmRequest): AsyncIterable<string> {
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamEvent> {
     const { chat, lastMessage } = this.#buildChat(request);
     const stream = await chat.sendMessageStream({ message: lastMessage });
     for await (const chunk of stream) {
       const token = chunk.text;
-      if (token) yield token;
+      if (token) yield { type: 'token', token };
+      
+      if (chunk.usageMetadata) {
+        yield {
+          type: 'usage',
+          usage: {
+            promptTokens: chunk.usageMetadata.promptTokenCount ?? 0,
+            completionTokens: chunk.usageMetadata.candidatesTokenCount ?? 0,
+            totalTokens: chunk.usageMetadata.totalTokenCount ?? 0,
+          }
+        };
+      }
     }
   }
 

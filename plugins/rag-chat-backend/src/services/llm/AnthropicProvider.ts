@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { LlmProvider, LlmRequest, LlmResponse } from './LlmProvider';
+import { LlmProvider, LlmRequest, LlmResponse, LlmStreamEvent } from './LlmProvider';
 
 export class AnthropicProvider implements LlmProvider {
   readonly #client: Anthropic;
@@ -34,17 +34,39 @@ export class AnthropicProvider implements LlmProvider {
     const response = await this.#client.messages.create(this.#buildParams(request));
     const content =
       response.content[0]?.type === 'text' ? response.content[0].text : '';
-    return { content, modelId: this.#modelId };
+    const usage = response.usage ? {
+      promptTokens: response.usage.input_tokens,
+      completionTokens: response.usage.output_tokens,
+      totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+    } : undefined;
+    return { content, modelId: this.#modelId, usage };
   }
 
-  async *stream(request: LlmRequest): AsyncIterable<string> {
+  async *stream(request: LlmRequest): AsyncIterable<LlmStreamEvent> {
     const stream = this.#client.messages.stream(this.#buildParams(request));
+    let promptTokens = 0;
+    
     for await (const event of stream) {
+      if (event.type === 'message_start' && event.message.usage) {
+        promptTokens = event.message.usage.input_tokens;
+      }
+
       if (
         event.type === 'content_block_delta' &&
         event.delta.type === 'text_delta'
       ) {
-        yield event.delta.text;
+        yield { type: 'token', token: event.delta.text };
+      }
+
+      if (event.type === 'message_delta' && event.usage) {
+        yield {
+          type: 'usage',
+          usage: {
+            promptTokens,
+            completionTokens: event.usage.output_tokens,
+            totalTokens: promptTokens + event.usage.output_tokens,
+          }
+        };
       }
     }
   }
