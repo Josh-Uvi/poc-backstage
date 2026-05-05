@@ -1,9 +1,15 @@
+export interface Citation {
+  text: string;
+  metadata: Record<string, string>;
+}
+
 export interface Message {
   id: string;
   content: string;
   sender: 'user' | 'assistant';
   timestamp: Date;
   streaming?: boolean;
+  citations?: Citation[];
 }
 
 export interface UploadedSourceRef {

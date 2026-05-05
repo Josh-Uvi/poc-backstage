@@ -336,6 +336,7 @@ export const ChatInterface = (): React.ReactElement => {
             content: m.content,
             sender: m.role as 'user' | 'assistant',
             timestamp: new Date(m.timestamp),
+            citations: m.citations,
           })),
           sourceRefs: [],
           createdAt: new Date(c.createdAt),
@@ -356,7 +357,7 @@ export const ChatInterface = (): React.ReactElement => {
       }
     });
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-scroll to bottom when new messages arrive
@@ -501,10 +502,10 @@ export const ChatInterface = (): React.ReactElement => {
           conv.id !== conversationId
             ? conv
             : {
-                ...conv,
-                sourceRefs: [...(conv.sourceRefs ?? []), source],
-                updatedAt: new Date(),
-              },
+              ...conv,
+              sourceRefs: [...(conv.sourceRefs ?? []), source],
+              updatedAt: new Date(),
+            },
         ),
       }));
 
@@ -640,7 +641,7 @@ export const ChatInterface = (): React.ReactElement => {
                 conv.id !== convId ? conv : {
                   ...conv,
                   messages: conv.messages.map(msg =>
-                    msg.id !== assistantMessageId ? msg : { ...msg, streaming: false },
+                    msg.id !== assistantMessageId ? msg : { ...msg, streaming: false, citations: event.citations },
                   ),
                 },
               ),

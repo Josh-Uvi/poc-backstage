@@ -169,16 +169,16 @@ yarn start
   - On create/delete, call backend endpoints and update local state optimistically
   - `localStorage` should become a cache only, not the source of truth
 
-- [ ] **Wire to real backend — chat**
+- [x] **Wire to real backend — chat**
   - `handleSendMessage` currently uses a mock `setTimeout` — replace with a real `fetchApi.fetch` call to `POST /api/rag-chat/chat`
   - Consume the SSE stream token-by-token using `ReadableStream`
   - Surface `{ type: 'error' }` SSE events via the snackbar
 
-- [ ] **Markdown rendering in message bubbles**
+- [x] **Markdown rendering in message bubbles**
   - Replace plain `<Typography>` with `react-markdown` + `remark-gfm`
   - Add syntax highlighting for code blocks via `react-syntax-highlighter`
 
-- [ ] **Source citations**
+- [x] **Source citations**
   - Render `citations` from the `done` SSE event as collapsible cards below the assistant bubble
 
 ### Medium Priority

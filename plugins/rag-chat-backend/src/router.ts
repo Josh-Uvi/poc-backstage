@@ -283,8 +283,8 @@ export async function createRouter({
     let contextChunks: RetrievedContext[] = [];
     if (retrievalSourceIds.length) {
       contextChunks = runtimeEmbedding
-        ? await rag.retrieve(message, retrievalSourceIds, 5, runtimeEmbedding)
-        : await rag.retrieve(message, retrievalSourceIds, 5);
+        ? await rag.retrieve(message, retrievalSourceIds, 3, runtimeEmbedding)
+        : await rag.retrieve(message, retrievalSourceIds, 3);
     }
 
     // Build LLM message history
@@ -350,7 +350,15 @@ export async function createRouter({
         userRef,
       );
 
-      sendEvent({ type: 'done', conversationId: convId, messageId: assistantMessageId });
+      const isGeneralChat = message.trim().length < 50 && 
+        /^(hi|hello|hey|howdy|hola|greetings|what's up|how are you|what can you do|who are you|thanks|thank you|bye|goodbye)/i.test(message.trim());
+
+      sendEvent({
+        type: 'done',
+        conversationId: convId,
+        messageId: assistantMessageId,
+        citations: isGeneralChat ? [] : contextChunks,
+      });
     } catch (e: any) {
       sendEvent({ type: 'error', error: e?.message ?? 'Unknown error' });
     } finally {
