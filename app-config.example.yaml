@@ -40,22 +40,6 @@ ragChat:
   defaultSourceIds:
     - catalog
     - techdocs
-  models:
-    - id: gpt-4
-      name: GPT-4
-      provider: openai
-      apiBaseUrl: https://api.openai.com/v1
-      # apiToken: ${OPENAI_API_TOKEN}
-    - id: claude-3-opus
-      name: Claude 3 Opus
-      provider: anthropic
-      apiBaseUrl: https://api.anthropic.com/v1
-      # apiToken: ${ANTHROPIC_API_TOKEN}
-    - id: gemini-pro
-      name: Gemini Pro
-      provider: google
-      apiBaseUrl: https://generativelanguage.googleapis.com/v1
-      # apiToken: ${GOOGLE_API_TOKEN}
   sources:
     - id: catalog
       name: Software Catalog
@@ -65,6 +49,15 @@ ragChat:
       name: TechDocs
       type: techdocs
       description: Query documentation from TechDocs
+  providers:
+    type: openai # openai, anthropic, google, custom
+    apiToken: ${OPENAI_API_TOKEN}
+    embedding:
+      model: text-embedding-3-small
+    chatModel:
+      - id: gpt-4
+        name: GPT-4
+        apiBaseUrl: https://api.openai.com/v1
 
 techdocs:
   builder: 'local'

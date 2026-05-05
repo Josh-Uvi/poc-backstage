@@ -18,9 +18,50 @@ interface ModelConfig {
   apiBaseUrl?: string;
 }
 
+const PROVIDER_TYPES = ['openai', 'anthropic', 'google', 'custom'] as const;
+
+const isProviderType = (
+  value: string | undefined,
+): value is ModelConfig['provider'] =>
+  Boolean(value && (PROVIDER_TYPES as readonly string[]).includes(value));
+
+const readModelConfigs = (config: RootConfigService): ModelConfig[] => {
+  const providerConfig = config.getOptionalConfig('ragChat.providers');
+  const providerType = providerConfig?.getOptionalString('type');
+  const providerApiToken = providerConfig?.getOptionalString('apiToken') ?? '';
+  const providerApiBaseUrl = providerConfig?.getOptionalString('apiBaseUrl');
+  const providerModels = providerConfig?.getOptionalConfigArray('chatModel') ?? [];
+
+  if (isProviderType(providerType) && providerModels.length) {
+    return providerModels.map(model => ({
+      id: model.getString('id'),
+      provider: providerType,
+      apiToken: model.getOptionalString('apiToken') ?? providerApiToken,
+      apiBaseUrl: model.getOptionalString('apiBaseUrl') ?? providerApiBaseUrl,
+    }));
+  }
+
+  return [];
+};
+
+export interface RuntimeModelConfig {
+  provider?: ModelConfig['provider'];
+  apiToken?: string;
+  apiBaseUrl?: string;
+}
+
 export interface ILlmService {
-  chat(modelId: string, request: LlmRequest): Promise<LlmResponse>;
-  stream(modelId: string, request: LlmRequest): AsyncIterable<string>;
+  chat(
+    modelId: string,
+    request: LlmRequest,
+    runtimeConfig?: RuntimeModelConfig,
+  ): Promise<LlmResponse>;
+
+  stream(
+    modelId: string,
+    request: LlmRequest,
+    runtimeConfig?: RuntimeModelConfig,
+  ): AsyncIterable<string>;
 }
 
 export class LlmService implements ILlmService {
@@ -34,12 +75,9 @@ export class LlmService implements ILlmService {
   private constructor(config: RootConfigService, logger: LoggerService) {
     this.#logger = logger;
 
-    const models = config.getOptionalConfigArray('ragChat.models') ?? [];
-    for (const m of models) {
-      const id = m.getString('id');
-      const provider = m.getString('provider') as ModelConfig['provider'];
-      const apiToken = m.getOptionalString('apiToken') ?? '';
-      const apiBaseUrl = m.getOptionalString('apiBaseUrl');
+    const models = readModelConfigs(config);
+    for (const modelConfig of models) {
+      const { id, provider, apiToken } = modelConfig;
 
       if (!apiToken) {
         logger.warn(`ragChat model '${id}' has no apiToken — skipping`);
@@ -47,7 +85,7 @@ export class LlmService implements ILlmService {
       }
 
       try {
-        this.#providers.set(id, this.#buildProvider({ id, provider, apiToken, apiBaseUrl }));
+        this.#providers.set(id, this.#buildProvider(modelConfig));
         logger.info(`Registered LLM provider for model '${id}' (${provider})`);
       } catch (e) {
         logger.warn(`Failed to register LLM provider for model '${id}': ${e}`);
@@ -74,31 +112,54 @@ export class LlmService implements ILlmService {
           apiToken: model.apiToken,
           modelId: model.id,
         });
+      case 'custom':
+        return new OpenAiProvider({
+          apiToken: model.apiToken,
+          apiBaseUrl: model.apiBaseUrl,
+          modelId: model.id,
+        });
       default:
         throw new Error(`Unsupported provider '${model.provider}' for model '${model.id}'`);
     }
   }
 
-  async chat(modelId: string, request: LlmRequest): Promise<LlmResponse> {
+  #resolveProvider(modelId: string, runtimeConfig?: RuntimeModelConfig): LlmProvider {
     const provider = this.#providers.get(modelId);
-    if (!provider) {
-      throw new InputError(
-        `No LLM provider configured for modelId '${modelId}'. ` +
-        `Check ragChat.models in app-config.yaml.`,
-      );
+    if (provider) {
+      return provider;
     }
+
+    if (runtimeConfig?.provider && runtimeConfig.apiToken) {
+      return this.#buildProvider({
+        id: modelId,
+        provider: runtimeConfig.provider,
+        apiToken: runtimeConfig.apiToken,
+        apiBaseUrl: runtimeConfig.apiBaseUrl,
+      });
+    }
+
+    throw new InputError(
+      `No LLM provider configured for modelId '${modelId}'. ` +
+      `Check ragChat.providers.chatModel in app-config.yaml.`,
+    );
+  }
+
+  async chat(
+    modelId: string,
+    request: LlmRequest,
+    runtimeConfig?: RuntimeModelConfig,
+  ): Promise<LlmResponse> {
+    const provider = this.#resolveProvider(modelId, runtimeConfig);
     this.#logger.info(`LLM chat request`, { modelId, messageCount: request.messages.length });
     return provider.chat(request);
   }
 
-  async *stream(modelId: string, request: LlmRequest): AsyncIterable<string> {
-    const provider = this.#providers.get(modelId);
-    if (!provider) {
-      throw new InputError(
-        `No LLM provider configured for modelId '${modelId}'. ` +
-        `Check ragChat.models in app-config.yaml.`,
-      );
-    }
+  async *stream(
+    modelId: string,
+    request: LlmRequest,
+    runtimeConfig?: RuntimeModelConfig,
+  ): AsyncIterable<string> {
+    const provider = this.#resolveProvider(modelId, runtimeConfig);
     this.#logger.info(`LLM stream request`, { modelId, messageCount: request.messages.length });
     yield* provider.stream(request);
   }

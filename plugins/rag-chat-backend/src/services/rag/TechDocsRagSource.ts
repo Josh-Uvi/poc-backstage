@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import { parse } from 'node-html-parser';
-import { LoggerService } from '@backstage/backend-plugin-api';
+import { LoggerService, BackstageCredentials } from '@backstage/backend-plugin-api';
 import { CatalogApi } from '@backstage/catalog-client';
 import { chunkText, Chunk } from './Chunker';
 
@@ -19,11 +19,11 @@ export class TechDocsRagSource {
     this.#logger = options.logger;
   }
 
-  async fetchChunks(): Promise<Chunk[]> {
+  async fetchChunks(credentials: BackstageCredentials): Promise<Chunk[]> {
     // Find all entities that have TechDocs enabled
     const { items: entities } = await this.#catalog.getEntities({
       filter: { 'metadata.annotations.backstage.io/techdocs-ref': '*' },
-    });
+    }, { credentials } as any);
 
     const chunks: Chunk[] = [];
 

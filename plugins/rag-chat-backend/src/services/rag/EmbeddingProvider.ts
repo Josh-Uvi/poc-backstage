@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 export interface EmbeddingProvider {
   embed(texts: string[]): Promise<number[][]>;
@@ -37,20 +37,24 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
 // ── Google ────────────────────────────────────────────────────────────────────
 
 export class GoogleEmbeddingProvider implements EmbeddingProvider {
-  readonly #client: GoogleGenerativeAI;
+  readonly #client: GoogleGenAI;
   readonly #model: string;
 
   constructor(options: { apiToken: string; model?: string }) {
-    this.#client = new GoogleGenerativeAI(options.apiToken);
+    this.#client = new GoogleGenAI({ apiKey: options.apiToken });
     this.#model = options.model ?? 'text-embedding-004';
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const model = this.#client.getGenerativeModel({ model: this.#model });
     const results = await Promise.all(
-      texts.map(t => model.embedContent(t)),
+      texts.map(text =>
+        this.#client.models.embedContent({
+          model: this.#model,
+          contents: text,
+        }),
+      ),
     );
-    return results.map(r => r.embedding.values);
+    return results.map(r => r.embeddings?.[0]?.values ?? []);
   }
 }
 
@@ -58,9 +62,6 @@ export class GoogleEmbeddingProvider implements EmbeddingProvider {
 
 export class AnthropicEmbeddingProvider extends OpenAiEmbeddingProvider {
   constructor(options: { apiToken: string; apiBaseUrl?: string }) {
-    // Anthropic doesn't have a native embedding API yet;
-    // use the OpenAI-compatible endpoint if a custom baseURL is provided,
-    // otherwise callers should configure a separate embedding model.
     super({
       apiToken: options.apiToken,
       apiBaseUrl: options.apiBaseUrl ?? 'https://api.anthropic.com/v1',

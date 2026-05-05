@@ -30,13 +30,25 @@ export interface ChatUIState {
   showSettings: boolean;
 }
 
+export type RagChatProvider = 'openai' | 'anthropic' | 'google' | 'custom';
+
 export interface RagChatModel {
   id: string;
   name: string;
-  provider: 'openai' | 'anthropic' | 'google' | 'custom';
+  provider: RagChatProvider;
   apiBaseUrl?: string;
   apiToken?: string;
+  tokenConfigured?: boolean;
+  readOnly?: boolean;
   userDefined?: boolean;
+}
+
+export interface RagChatEmbeddingConfig {
+  provider: RagChatProvider;
+  model?: string;
+  apiBaseUrl?: string;
+  apiToken?: string;
+  tokenConfigured?: boolean;
 }
 
 export interface RagChatSource {
@@ -44,13 +56,16 @@ export interface RagChatSource {
   name: string;
   type: 'catalog' | 'techdocs' | 'custom';
   description?: string;
+  readOnly?: boolean;
   userDefined?: boolean;
 }
 
 export interface RagChatConfig {
   models: RagChatModel[];
   sources: RagChatSource[];
+  embedding?: RagChatEmbeddingConfig;
   defaultModelId?: string;
+  defaultEmbeddingModelId?: string;
   defaultSourceIds?: string[];
   permissionEnabled: boolean;
 }

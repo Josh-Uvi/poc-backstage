@@ -20,24 +20,41 @@ import { TechDocsRagSource } from './TechDocsRagSource';
 import { CustomRagSource, CustomSourceConfig } from './CustomRagSource';
 import { chunkText, Chunk } from './Chunker';
 
+export interface RuntimeEmbeddingConfig {
+  provider?: 'openai' | 'anthropic' | 'google' | 'custom';
+  apiToken?: string;
+  apiBaseUrl?: string;
+  model?: string;
+}
+
 export interface RetrievedContext {
   text: string;
   metadata: Record<string, string>;
 }
 
 export interface IRagService {
-  indexSource(sourceId: string, credentials: BackstageCredentials): Promise<void>;
+  indexSource(
+    sourceId: string,
+    credentials: BackstageCredentials,
+    runtimeConfig?: RuntimeEmbeddingConfig,
+  ): Promise<void>;
   indexDocument(options: {
     sourceId: string;
     documentText: string;
     metadata: Record<string, string>;
-  }): Promise<void>;
-  retrieve(query: string, sourceIds: string[], topK?: number): Promise<RetrievedContext[]>;
+  }, runtimeConfig?: RuntimeEmbeddingConfig): Promise<void>;
+  retrieve(
+    query: string,
+    sourceIds: string[],
+    topK?: number,
+    runtimeConfig?: RuntimeEmbeddingConfig,
+  ): Promise<RetrievedContext[]>;
 }
 
 export class RagService implements IRagService {
   readonly #logger: LoggerService;
   readonly #embedding: EmbeddingProvider;
+  readonly #defaultEmbeddingConfig: RuntimeEmbeddingConfig;
   readonly #store: VectorStore;
   readonly #catalogSource: CatalogRagSource;
   readonly #techDocsSource: TechDocsRagSource;
@@ -51,7 +68,8 @@ export class RagService implements IRagService {
   }): RagService {
     const { config, logger, catalog } = options;
 
-    const embedding = RagService.#buildEmbeddingProvider(config, logger);
+    const defaultEmbeddingConfig = RagService.#readEmbeddingConfig(config);
+    const embedding = RagService.#buildEmbeddingProvider(defaultEmbeddingConfig, logger);
     const store = new InMemoryVectorStore();
 
     const techdocsBaseUrl =
@@ -82,6 +100,7 @@ export class RagService implements IRagService {
     return new RagService({
       logger,
       embedding,
+      defaultEmbeddingConfig,
       store,
       catalogSource,
       techDocsSource,
@@ -90,20 +109,40 @@ export class RagService implements IRagService {
     });
   }
 
+  static #readEmbeddingConfig(config: RootConfigService): RuntimeEmbeddingConfig {
+    const providerConfig = config.getOptionalConfig('ragChat.providers');
+    const providerType = providerConfig?.getOptionalString('type');
+    const providerApiToken = providerConfig?.getOptionalString('apiToken') ?? '';
+    const providerApiBaseUrl = providerConfig?.getOptionalString('apiBaseUrl');
+    const providerEmbeddingConfig = providerConfig?.getOptionalConfig('embedding');
+
+    if (providerType) {
+      return {
+        provider: providerType as RuntimeEmbeddingConfig['provider'],
+        apiToken:
+          providerEmbeddingConfig?.getOptionalString('apiToken') ?? providerApiToken,
+        apiBaseUrl:
+          providerEmbeddingConfig?.getOptionalString('apiBaseUrl') ?? providerApiBaseUrl,
+        model: providerEmbeddingConfig?.getOptionalString('model'),
+      };
+    }
+
+    return { provider: 'openai', apiToken: '' };
+  }
+
   static #buildEmbeddingProvider(
-    config: RootConfigService,
+    embeddingConfig: RuntimeEmbeddingConfig,
     logger: LoggerService,
   ): EmbeddingProvider {
-    const embeddingConfig = config.getOptionalConfig('ragChat.embedding');
-    const provider = embeddingConfig?.getOptionalString('provider') ?? 'openai';
-    const apiToken = embeddingConfig?.getOptionalString('apiToken') ?? '';
-    const apiBaseUrl = embeddingConfig?.getOptionalString('apiBaseUrl');
-    const model = embeddingConfig?.getOptionalString('model');
+    const provider = embeddingConfig.provider ?? 'openai';
+    const apiToken = embeddingConfig.apiToken ?? '';
+    const apiBaseUrl = embeddingConfig.apiBaseUrl;
+    const model = embeddingConfig.model;
 
     if (!apiToken) {
       logger.warn(
-        'ragChat.embedding.apiToken not set — RAG retrieval will return empty context. ' +
-        'Configure ragChat.embedding in app-config.yaml.',
+        'No embedding apiToken configured — RAG retrieval will return empty context. ' +
+        'Configure ragChat.providers.apiToken (or ragChat.embedding.apiToken for legacy config) in app-config.yaml.',
       );
       return { embed: async () => [] };
     }
@@ -113,6 +152,8 @@ export class RagService implements IRagService {
         return new AnthropicEmbeddingProvider({ apiToken, apiBaseUrl });
       case 'google':
         return new GoogleEmbeddingProvider({ apiToken, model });
+      case 'custom':
+        return new OpenAiEmbeddingProvider({ apiToken, apiBaseUrl, model });
       case 'openai':
       default:
         return new OpenAiEmbeddingProvider({ apiToken, apiBaseUrl, model });
@@ -122,6 +163,7 @@ export class RagService implements IRagService {
   private constructor(options: {
     logger: LoggerService;
     embedding: EmbeddingProvider;
+    defaultEmbeddingConfig: RuntimeEmbeddingConfig;
     store: VectorStore;
     catalogSource: CatalogRagSource;
     techDocsSource: TechDocsRagSource;
@@ -130,6 +172,7 @@ export class RagService implements IRagService {
   }) {
     this.#logger = options.logger;
     this.#embedding = options.embedding;
+    this.#defaultEmbeddingConfig = options.defaultEmbeddingConfig;
     this.#store = options.store;
     this.#catalogSource = options.catalogSource;
     this.#techDocsSource = options.techDocsSource;
@@ -137,9 +180,39 @@ export class RagService implements IRagService {
     this.#customSources = options.customSources;
   }
 
+  #resolveEmbeddingConfig(
+    runtimeConfig?: RuntimeEmbeddingConfig,
+  ): RuntimeEmbeddingConfig {
+    return {
+      provider: runtimeConfig?.provider ?? this.#defaultEmbeddingConfig.provider,
+      apiToken: runtimeConfig?.apiToken ?? this.#defaultEmbeddingConfig.apiToken,
+      apiBaseUrl: runtimeConfig?.apiBaseUrl ?? this.#defaultEmbeddingConfig.apiBaseUrl,
+      model: runtimeConfig?.model ?? this.#defaultEmbeddingConfig.model,
+    };
+  }
+
+  #resolveEmbeddingProvider(runtimeConfig?: RuntimeEmbeddingConfig): EmbeddingProvider {
+    if (!runtimeConfig) {
+      return this.#embedding;
+    }
+
+    return RagService.#buildEmbeddingProvider(
+      this.#resolveEmbeddingConfig(runtimeConfig),
+      this.#logger,
+    );
+  }
+
+  #sourceKey(sourceId: string, runtimeConfig?: RuntimeEmbeddingConfig): string {
+    const resolved = this.#resolveEmbeddingConfig(runtimeConfig);
+    const provider = resolved.provider ?? 'openai';
+    const model = resolved.model ?? 'default';
+    return `${sourceId}::${provider}::${model}`;
+  }
+
   async indexSource(
     sourceId: string,
     credentials: BackstageCredentials,
+    runtimeConfig?: RuntimeEmbeddingConfig,
   ): Promise<void> {
     this.#logger.info(`Indexing RAG source: ${sourceId}`);
     let chunks: Chunk[] = [];
@@ -147,7 +220,7 @@ export class RagService implements IRagService {
     if (sourceId === 'catalog') {
       chunks = await this.#catalogSource.fetchChunks(credentials);
     } else if (sourceId === 'techdocs') {
-      chunks = await this.#techDocsSource.fetchChunks();
+      chunks = await this.#techDocsSource.fetchChunks(credentials);
     } else {
       const customConfig = this.#customSources.get(sourceId);
       if (!customConfig) {
@@ -162,30 +235,35 @@ export class RagService implements IRagService {
       return;
     }
 
-    await this.#indexChunks(sourceId, chunks);
+    await this.#indexChunks(sourceId, chunks, runtimeConfig);
   }
 
   async indexDocument(options: {
     sourceId: string;
     documentText: string;
     metadata: Record<string, string>;
-  }): Promise<void> {
+  }, runtimeConfig?: RuntimeEmbeddingConfig): Promise<void> {
     const chunks = chunkText(options.documentText, options.metadata);
     if (!chunks.length) {
       this.#logger.info(`No chunks produced for uploaded source '${options.sourceId}'`);
       return;
     }
 
-    await this.#indexChunks(options.sourceId, chunks);
+    await this.#indexChunks(options.sourceId, chunks, runtimeConfig);
   }
 
-  async #indexChunks(sourceId: string, chunks: Chunk[]): Promise<void> {
+  async #indexChunks(
+    sourceId: string,
+    chunks: Chunk[],
+    runtimeConfig?: RuntimeEmbeddingConfig,
+  ): Promise<void> {
     if (!chunks.length) {
       return;
     }
 
+    const embeddingProvider = this.#resolveEmbeddingProvider(runtimeConfig);
     const texts = chunks.map(c => c.text);
-    const embeddings = await this.#embedding.embed(texts);
+    const embeddings = await embeddingProvider.embed(texts);
 
     if (!embeddings.length) {
       this.#logger.warn(`Embedding returned empty for source '${sourceId}'`);
@@ -198,7 +276,7 @@ export class RagService implements IRagService {
       sourceId,
     }));
 
-    await this.#store.upsert(sourceId, entries);
+    await this.#store.upsert(this.#sourceKey(sourceId, runtimeConfig), entries);
     this.#logger.info(
       `Indexed ${entries.length} chunks for source '${sourceId}'`,
     );
@@ -208,11 +286,17 @@ export class RagService implements IRagService {
     query: string,
     sourceIds: string[],
     topK = 5,
+    runtimeConfig?: RuntimeEmbeddingConfig,
   ): Promise<RetrievedContext[]> {
-    const [queryEmbedding] = await this.#embedding.embed([query]);
+    const embeddingProvider = this.#resolveEmbeddingProvider(runtimeConfig);
+    const [queryEmbedding] = await embeddingProvider.embed([query]);
     if (!queryEmbedding?.length) return [];
 
-    const results = await this.#store.query(queryEmbedding, sourceIds, topK);
+    const results = await this.#store.query(
+      queryEmbedding,
+      sourceIds.map(sourceId => this.#sourceKey(sourceId, runtimeConfig)),
+      topK,
+    );
     return results.map(r => ({ text: r.chunk.text, metadata: r.chunk.metadata }));
   }
 }

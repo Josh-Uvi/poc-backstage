@@ -16,7 +16,7 @@ export class CatalogRagSource {
   ): Promise<Chunk[]> {
     const { items: entities } = await this.#catalog.getEntities(
       { filter: CATALOG_KINDS.map(kind => ({ kind })) },
-      { token: await this.#getToken(credentials) },
+      { credentials } as any,
     );
 
     const chunks: Chunk[] = [];
@@ -54,11 +54,5 @@ export class CatalogRagSource {
     }
 
     return chunks;
-  }
-
-  async #getToken(credentials: BackstageCredentials): Promise<string | undefined> {
-    // credentials may carry a token for service-to-service auth
-    if ('token' in credentials) return (credentials as any).token;
-    return undefined;
   }
 }

@@ -1,40 +1,58 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { LlmProvider, LlmRequest, LlmResponse } from './LlmProvider';
 
 export class GoogleProvider implements LlmProvider {
-  readonly #client: GoogleGenerativeAI;
+  readonly #client: GoogleGenAI;
   readonly #modelId: string;
 
   constructor(options: { apiToken: string; modelId: string }) {
-    this.#client = new GoogleGenerativeAI(options.apiToken);
+    this.#client = new GoogleGenAI({ apiKey: options.apiToken });
     this.#modelId = options.modelId;
-  }
-
-  #buildChat(request: LlmRequest) {
-    const model = this.#client.getGenerativeModel({
-      model: this.#modelId,
-      generationConfig: { temperature: request.temperature },
-    });
-    const history = request.messages.slice(0, -1).map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
-    const lastMessage = request.messages[request.messages.length - 1];
-    return { chat: model.startChat({ history }), lastMessage };
   }
 
   async chat(request: LlmRequest): Promise<LlmResponse> {
     const { chat, lastMessage } = this.#buildChat(request);
-    const result = await chat.sendMessage(lastMessage?.content ?? '');
-    return { content: result.response.text(), modelId: this.#modelId };
+    const response = await chat.sendMessage({ message: lastMessage });
+    const content = response.text ?? '';
+    return { content, modelId: this.#modelId };
   }
 
   async *stream(request: LlmRequest): AsyncIterable<string> {
     const { chat, lastMessage } = this.#buildChat(request);
-    const result = await chat.sendMessageStream(lastMessage?.content ?? '');
-    for await (const chunk of result.stream) {
-      const token = chunk.text();
+    const stream = await chat.sendMessageStream({ message: lastMessage });
+    for await (const chunk of stream) {
+      const token = chunk.text;
       if (token) yield token;
     }
+  }
+
+  #buildChat(request: LlmRequest) {
+    // Separate system context (assistant role) from the conversation history
+    const systemMessages = request.messages.filter(m => m.role === 'assistant');
+    const conversationMessages = request.messages.filter(m => m.role === 'user');
+
+    // Build history: all user/model turns except the last user message
+    const history = conversationMessages.slice(0, -1).map(m => ({
+      role: 'user' as const,
+      parts: [{ text: m.content }],
+    }));
+
+    const systemInstruction = systemMessages.length
+      ? systemMessages.map(m => m.content).join('\n')
+      : undefined;
+
+    const chat = this.#client.chats.create({
+      model: this.#modelId,
+      history,
+      config: {
+        temperature: request.temperature,
+        ...(systemInstruction ? { systemInstruction } : {}),
+      },
+    });
+
+    const lastMessage =
+      conversationMessages[conversationMessages.length - 1]?.content ?? '';
+
+    return { chat, lastMessage };
   }
 }

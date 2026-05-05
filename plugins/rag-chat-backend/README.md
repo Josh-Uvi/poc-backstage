@@ -15,12 +15,11 @@ Both plugins share a single `ragChat:` config block in `app-config.yaml`, but ea
 | `ragChat.defaultModelId` | Frontend only | Pre-selects a model in the UI |
 | `ragChat.defaultSourceIds` | Frontend only | Pre-selects sources in the UI |
 | `ragChat.permission.enabled` | **Frontend + Backend** | Toggles permission enforcement in both |
-| `ragChat.models[].id` | **Frontend + Backend** | Identifies the model in API requests |
-| `ragChat.models[].name` | Frontend only | Display name in the Settings dropdown |
-| `ragChat.models[].provider` | **Frontend + Backend** | Provider type used to build the LLM client |
-| `ragChat.models[].apiBaseUrl` | **Frontend + Backend** | API endpoint for the provider |
-| `ragChat.models[].apiToken` | **Backend only** ⚠️ | Secret key — read server-side, never sent to browser |
-| `ragChat.embedding.*` | **Backend only** ⚠️ | Embedding model and secret key for RAG vector search |
+| `ragChat.providers.type` | **Frontend + Backend** | Provider type used to build the LLM client |
+| `ragChat.providers.apiToken` | **Backend only** ⚠️ | Shared provider secret key — never sent to browser |
+| `ragChat.providers.apiBaseUrl` | **Frontend + Backend** | Optional shared API endpoint for the provider |
+| `ragChat.providers.chatModel[]` | **Frontend + Backend** | Chat models available for the selected provider |
+| `ragChat.providers.embedding.model` | **Backend + Frontend** | Embedding model used for RAG vector search |
 | `ragChat.sources[].id/name/type/description` | **Frontend + Backend** | Source identity and display |
 | `ragChat.sources[].target` | **Backend only** | URL or file path for custom sources |
 
@@ -44,7 +43,7 @@ backend.add(import('@internal/backstage-plugin-rag-chat-backend'));
 
 ## Backend-only configuration
 
-These keys are read **exclusively by the backend**. The frontend never sees `apiToken` or `embedding` values.
+These keys are read **exclusively by the backend** for credentials. The frontend uses the same structure for safe display metadata.
 
 ```yaml
 # app-config.yaml
@@ -58,42 +57,17 @@ ragChat:
   permission:
     enabled: false   # default; set true to enforce ragChatChatPermission / ragChatAdminPermission
 
-  # ── Backend-only: embedding model ────────────────────────────────────────
-  # Used to embed text chunks and user queries for vector similarity search.
-  # The frontend never reads this block.
-  embedding:
-    provider: openai          # openai | google | anthropic
-    apiToken: ${OPENAI_API_TOKEN}   # ⚠️ server-side only
-    model: text-embedding-3-small   # OpenAI default; use text-embedding-004 for Google
-    # apiBaseUrl: https://api.openai.com/v1   # optional override
-
-  # ── Backend-only: apiToken per model ─────────────────────────────────────
-  # id, name, provider, apiBaseUrl are also read by the frontend for display.
-  # apiToken is read ONLY by the backend to make LLM API calls.
-  models:
-    - id: gpt-4
-      name: GPT-4
-      provider: openai
-      apiBaseUrl: https://api.openai.com/v1
-      apiToken: ${OPENAI_API_TOKEN}       # ⚠️ backend only
-
-    - id: gpt-4-turbo
-      name: GPT-4 Turbo
-      provider: openai
-      apiBaseUrl: https://api.openai.com/v1
-      apiToken: ${OPENAI_API_TOKEN}       # ⚠️ backend only
-
-    - id: claude-3-opus
-      name: Claude 3 Opus
-      provider: anthropic
-      apiBaseUrl: https://api.anthropic.com/v1
-      apiToken: ${ANTHROPIC_API_TOKEN}    # ⚠️ backend only
-
-    - id: gemini-pro
-      name: Gemini Pro
-      provider: google
-      apiBaseUrl: https://generativelanguage.googleapis.com/v1
-      apiToken: ${GOOGLE_API_TOKEN}       # ⚠️ backend only
+  providers:
+    type: openai             # openai | anthropic | google | custom
+    apiToken: ${OPENAI_API_TOKEN}   # ⚠️ backend only
+    apiBaseUrl: https://api.openai.com/v1
+    embedding:
+      model: text-embedding-3-small
+    chatModel:
+      - id: gpt-4
+        name: GPT-4
+      - id: gpt-4-turbo
+        name: GPT-4 Turbo
 
   # ── Backend-only: source targets ─────────────────────────────────────────
   # id, name, type, description are also read by the frontend for display.
@@ -122,7 +96,7 @@ ragChat:
 
 | Variable | Used for |
 |---|---|
-| `OPENAI_API_TOKEN` | OpenAI LLM calls and/or embedding |
+| `OPENAI_API_TOKEN` | OpenAI provider chat + embedding |
 | `ANTHROPIC_API_TOKEN` | Anthropic Claude LLM calls |
 | `GOOGLE_API_TOKEN` | Google Gemini LLM calls and/or embedding |
 
@@ -171,7 +145,7 @@ yarn test
 ### LLM Providers
 - **OpenAI** — `gpt-3.5-turbo`, `gpt-4`, `gpt-4o`, any OpenAI-compatible endpoint
 - **Anthropic** — `claude-3-*` via `@anthropic-ai/sdk`
-- **Google Gemini** — `gemini-pro` and others via `@google/generative-ai`
+- **Google Gemini** — `gemini-pro` and others via `@google/genai`
 - Common `LlmProvider` interface with `chat()` and `stream()` — swap providers without changing the router
 - Models without a configured `apiToken` are skipped at startup with a warning
 

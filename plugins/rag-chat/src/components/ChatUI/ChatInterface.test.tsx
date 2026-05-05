@@ -13,9 +13,11 @@ import {
 
 const mockConfigApi = {
   getConfig: () => ({
-    models: [{ id: 'gpt-4', name: 'GPT-4', provider: 'openai' as const }],
+    models: [{ id: 'gemini-flash', name: 'Gemini Flash', provider: 'google' as const, tokenConfigured: true }],
     sources: [{ id: 'catalog', name: 'Software Catalog', type: 'catalog' as const }],
-    defaultModelId: 'gpt-4',
+    embedding: { provider: 'google' as const, model: 'gemini-embedding-2', tokenConfigured: true },
+    defaultModelId: 'gemini-flash',
+    defaultEmbeddingModelId: 'gemini-embedding-2',
     defaultSourceIds: ['catalog'],
     permissionEnabled: false,
   }),
@@ -66,6 +68,49 @@ const renderApp = (fetchApi = makeFetchApi()) =>
     ],
   });
 
+// ── SSE stream helper ────────────────────────────────────────────────────────
+
+/** Encode SSE events into a ReadableStream the way the backend sends them */
+const makeSseStream = (events: object[]): ReadableStream<Uint8Array> => {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      controller.close();
+    },
+  });
+};
+
+/** Build a fetchApi that returns an SSE stream for POST /chat */
+const makeChatFetchApi = (sseEvents: object[]) => ({
+  fetch: jest.fn().mockImplementation((url: string, opts?: RequestInit) => {
+    const path = url.replace('http://localhost:7007/api/rag-chat', '');
+    if (path === '/chat' && opts?.method === 'POST') {
+      return Promise.resolve(
+        new Response(makeSseStream(sseEvents), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+    }
+    // Handle ensureConversation POST and GET
+    if (path === '/conversations') {
+      return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200 }));
+    }
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  }),
+});
+
+/** Type and submit a message via fireEvent only (avoids Suspense conflicts) */
+const sendMessage = (input: HTMLElement, message: string) => {
+  fireEvent.change(input, { target: { value: message } });
+  // MUI multiline TextField renders a <textarea> — fire keypress on it directly
+  const textarea = input.tagName === 'TEXTAREA' ? input : input.querySelector('textarea') ?? input;
+  fireEvent.keyPress(textarea, { key: 'Enter', code: 'Enter', charCode: 13 });
+};
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('ChatInterface', () => {
@@ -74,6 +119,8 @@ describe('ChatInterface', () => {
     jest.clearAllMocks();
     mockDiscoveryApi.getBaseUrl.mockResolvedValue('http://localhost:7007/api/rag-chat');
     mockIdentityApi.getProfileInfo.mockResolvedValue({ displayName: 'Test User' });
+    // jsdom does not implement scrollIntoView
+    window.HTMLElement.prototype.scrollIntoView = jest.fn();
   });
 
   // ── Rendering ──────────────────────────────────────────────────────────────
@@ -302,7 +349,7 @@ describe('ChatInterface', () => {
 
     it('rolls back the deletion if the backend DELETE fails', async () => {
       const fetchApi = {
-        fetch: jest.fn().mockImplementation((url: string, opts?: RequestInit) => {
+        fetch: jest.fn().mockImplementation((_url: string, opts?: RequestInit) => {
           if (opts?.method === 'DELETE') {
             return Promise.resolve(new Response('error', { status: 500 }));
           }
@@ -430,6 +477,131 @@ describe('ChatInterface', () => {
     });
   });
 
+  // ── Chat SSE streaming ────────────────────────────────────────────────────
+
+  describe('chat SSE streaming', () => {
+    const setupConversation = async () => {
+      fireEvent.click(screen.getByRole('button', { name: /new conversation/i }));
+      await waitFor(() =>
+        expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
+      );
+      // MUI multiline TextField renders a <textarea> — return it directly
+      return screen.getByPlaceholderText(/type your message/i) as HTMLTextAreaElement;
+    };
+
+    it('appends streamed tokens to the assistant bubble', async () => {
+      const fetchApi = makeChatFetchApi([
+        { type: 'token', token: 'Hello' },
+        { type: 'token', token: ' world' },
+        { type: 'done', conversationId: 'conv-1', messageId: 'msg-1' },
+      ]);
+      await renderApp(fetchApi);
+      const input = await setupConversation();
+      await sendMessage(input, 'Hi');
+      await waitFor(() =>
+        expect(screen.getByText('Hello world')).toBeInTheDocument(),
+      );
+    });
+
+    it('re-enables the input after the done event', async () => {
+      const fetchApi = makeChatFetchApi([
+        { type: 'token', token: 'Done' },
+        { type: 'done', conversationId: 'conv-1', messageId: 'msg-1' },
+      ]);
+      await renderApp(fetchApi);
+      const input = await setupConversation();
+      await sendMessage(input, 'Hi');
+      await waitFor(() =>
+        expect(screen.getByPlaceholderText(/type your message/i)).not.toBeDisabled(),
+      );
+    });
+
+    it('shows a snackbar and removes the placeholder on SSE error event', async () => {
+      const fetchApi = makeChatFetchApi([
+        { type: 'error', error: 'Model not configured' },
+      ]);
+      await renderApp(fetchApi);
+      const input = await setupConversation();
+      await sendMessage(input, 'Hi');
+      await waitFor(() =>
+        expect(screen.getByText('Model not configured')).toBeInTheDocument(),
+      );
+    });
+
+    it('shows a snackbar when the backend returns a non-200 status', async () => {
+      const fetchApi = {
+        fetch: jest.fn().mockImplementation((url: string, opts?: RequestInit) => {
+          const path = url.replace('http://localhost:7007/api/rag-chat', '');
+          if (path === '/chat' && opts?.method === 'POST') {
+            return Promise.resolve(new Response('Unauthorized', { status: 401 }));
+          }
+          return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200 }));
+        }),
+      };
+      await renderApp(fetchApi);
+      const input = await setupConversation();
+      await sendMessage(input, 'Hi');
+      await waitFor(() =>
+        expect(screen.getByText(/request failed/i)).toBeInTheDocument(),
+      );
+    });
+
+    it('sends modelId, sourceIds and temperature from active settings', async () => {
+      const fetchApi = makeChatFetchApi([
+        { type: 'token', token: 'ok' },
+        { type: 'done', conversationId: 'conv-1', messageId: 'msg-1' },
+      ]);
+      await renderApp(fetchApi);
+      const input = await setupConversation();
+      await sendMessage(input, 'Test message');
+      await waitFor(() => {
+        const chatCall = (fetchApi.fetch as jest.Mock).mock.calls.find(
+          ([url, opts]: [string, RequestInit]) =>
+            url.endsWith('/chat') && opts?.method === 'POST',
+        );
+        expect(chatCall).toBeDefined();
+        const body = JSON.parse(chatCall[1].body as string);
+        expect(body.modelId).toBe('gemini-flash');
+        expect(body.sourceIds).toEqual(['catalog']);
+        expect(body.temperature).toBe(0.7);
+        expect(body.message).toBe('Test message');
+      });
+    });
+
+    it('handles multiple tokens arriving in a single network chunk', async () => {
+      const encoder = new TextEncoder();
+      const combined =
+        `data: ${JSON.stringify({ type: 'token', token: 'Chunk' })}\n\n` +
+        `data: ${JSON.stringify({ type: 'token', token: 'ed' })}\n\n` +
+        `data: ${JSON.stringify({ type: 'done', conversationId: 'c', messageId: 'm' })}\n\n`;
+      const fetchApi = {
+        fetch: jest.fn().mockImplementation((url: string, opts?: RequestInit) => {
+          const path = url.replace('http://localhost:7007/api/rag-chat', '');
+          if (path === '/chat' && opts?.method === 'POST') {
+            return Promise.resolve(
+              new Response(
+                new ReadableStream({
+                  start(controller) {
+                    controller.enqueue(encoder.encode(combined));
+                    controller.close();
+                  },
+                }),
+                { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+              ),
+            );
+          }
+          return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200 }));
+        }),
+      };
+      await renderApp(fetchApi);
+      const input = await setupConversation();
+      await sendMessage(input, 'Hi');
+      await waitFor(() =>
+        expect(screen.getByText('Chunked')).toBeInTheDocument(),
+      );
+    });
+  });
+
   // ── Settings ──────────────────────────────────────────────────────────────
 
   describe('settings panel', () => {
@@ -445,6 +617,22 @@ describe('ChatInterface', () => {
       await waitFor(() =>
         expect(screen.getByText('Settings')).toBeInTheDocument(),
       );
+    });
+
+    it('shows the configured models from the backend', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+
+      await user.click(screen.getByRole('button', { name: /new conversation/i }));
+      await waitFor(() => expect(screen.getByTitle('Settings')).toBeInTheDocument());
+
+      await user.click(screen.getByTitle('Settings'));
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('gemini-flash')).toBeInTheDocument();
+      });
+
+      expect(screen.getByDisplayValue('gemini-embedding-2')).toBeInTheDocument();
     });
 
     it('closes the settings panel on cancel', async () => {

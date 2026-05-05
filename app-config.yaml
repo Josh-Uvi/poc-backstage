@@ -128,54 +128,6 @@ catalog:
     #   rules:
     #     - allow: [User, Group]
 
-ragChat:
-  defaultModelId: gpt-4
-  defaultSourceIds:
-    - catalog
-    - techdocs
-  permission:
-    enabled: false  # set to true to enforce ragChatChatPermission and ragChatAdminPermission
-  embedding:
-    provider: openai
-    apiToken: ${OPENAI_API_TOKEN}
-    model: text-embedding-3-small
-    # apiBaseUrl: https://api.openai.com/v1  # override for custom endpoints
-  models:
-    - id: gpt-4
-      name: GPT-4
-      provider: openai
-      apiBaseUrl: https://api.openai.com/v1
-      apiToken: ${OPENAI_API_TOKEN}
-    - id: gpt-4-turbo
-      name: GPT-4 Turbo
-      provider: openai
-      apiBaseUrl: https://api.openai.com/v1
-      apiToken: ${OPENAI_API_TOKEN}
-    - id: claude-3-opus
-      name: Claude 3 Opus
-      provider: anthropic
-      apiBaseUrl: https://api.anthropic.com/v1
-      apiToken: ${ANTHROPIC_API_TOKEN}
-    - id: gemini-pro
-      name: Gemini Pro
-      provider: google
-      apiBaseUrl: https://generativelanguage.googleapis.com/v1
-      apiToken: ${GOOGLE_API_TOKEN}
-  sources:
-    - id: catalog
-      name: Software Catalog
-      type: catalog
-      description: Query entities from the Backstage software catalog
-    - id: techdocs
-      name: TechDocs
-      type: techdocs
-      description: Query documentation from TechDocs
-    # - id: my-custom-source
-    #   name: My Custom Docs
-    #   type: custom
-    #   description: Custom documentation source
-    #   target: https://example.com/docs  # URL or absolute file path
-
 kubernetes:
   # see https://backstage.io/docs/features/kubernetes/configuration for kubernetes configuration options
 

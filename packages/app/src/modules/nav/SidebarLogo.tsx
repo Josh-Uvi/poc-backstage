@@ -1,8 +1,4 @@
-import {
-  Link,
-  sidebarConfig,
-  useSidebarOpenState,
-} from '@backstage/core-components';
+import { sidebarConfig, useSidebarOpenState } from '@backstage/core-components';
 import { makeStyles } from '@material-ui/core';
 import { LogoFull } from './LogoFull';
 import { LogoIcon } from './LogoIcon';
@@ -19,6 +15,9 @@ const useSidebarLogoStyles = makeStyles({
   link: {
     width: sidebarConfig.drawerWidthClosed,
     marginLeft: 24,
+    display: 'flex',
+    alignItems: 'center',
+    textDecoration: 'none',
   },
 });
 
@@ -28,9 +27,9 @@ export const SidebarLogo = () => {
 
   return (
     <div className={classes.root}>
-      <Link to="/" underline="none" className={classes.link} aria-label="Home">
+      <a href="/" className={classes.link} aria-label="Home">
         {isOpen ? <LogoFull /> : <LogoIcon />}
-      </Link>
+      </a>
     </div>
   );
 };

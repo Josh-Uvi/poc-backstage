@@ -1,3 +1,4 @@
+import React from 'react';
 import { makeStyles } from '@material-ui/core/styles';
 import {
   Box,
@@ -160,7 +161,7 @@ export const ChatSidebar = ({
       ) : (
         <List className={classes.conversationList} dense>
           {conversations.map((conv, index) => (
-            <>
+            <React.Fragment key={conv.id}>
               <ListItem
                 button
                 onClick={() => onSelectConversation(conv.id)}
@@ -195,7 +196,7 @@ export const ChatSidebar = ({
               {index < conversations.length - 1 && (
                 <Divider variant="inset" component="li" />
               )}
-            </>
+            </React.Fragment>
           ))}
         </List>
       )}

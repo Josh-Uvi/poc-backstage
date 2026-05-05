@@ -26,11 +26,127 @@ import { SettingsPanel, SettingsState } from './SettingsPanel';
 import {
   Conversation,
   Message,
+  RagChatConfig,
+  RagChatEmbeddingConfig,
   RagChatModel,
   RagChatSource,
   UploadedSourceRef,
 } from './types';
 import { ragChatConfigApiRef } from '../../api';
+
+const buildSettingsFromConfig = (
+  config: RagChatConfig,
+  existing?: Partial<SettingsState> | null,
+): SettingsState => {
+  const configuredModel = config.models.find(model => model.id === config.defaultModelId);
+  const defaultProvider =
+    configuredModel?.provider ??
+    config.embedding?.provider ??
+    config.models[0]?.provider ??
+    existing?.provider ??
+    'openai';
+  const providerModels = config.models.filter(model => model.provider === defaultProvider);
+
+  return {
+    soundEnabled: existing?.soundEnabled ?? true,
+    autoScroll: existing?.autoScroll ?? true,
+    provider: defaultProvider,
+    modelId:
+      config.defaultModelId ??
+      providerModels[0]?.id ??
+      existing?.modelId ??
+      config.models[0]?.id ??
+      '',
+    embeddingModelId:
+      config.defaultEmbeddingModelId ??
+      (config.embedding?.provider === defaultProvider ? config.embedding?.model : undefined) ??
+      existing?.embeddingModelId ??
+      config.embedding?.model ??
+      '',
+    apiToken: '', // Never load tokens from localStorage
+    apiBaseUrl: '', // Never load baseUrl from localStorage
+    temperature: existing?.temperature ?? 0.7,
+    activeSourceIds:
+      existing?.activeSourceIds ??
+      config.defaultSourceIds ??
+      config.sources.map(source => source.id),
+  };
+};
+
+const buildRuntimeEmbeddingConfig = (options: {
+  activeSettings: SettingsState;
+  embeddingConfig?: RagChatEmbeddingConfig;
+}):
+  | {
+      provider: string;
+      apiToken: string;
+      apiBaseUrl?: string;
+      model: string;
+    }
+  | undefined => {
+  const { activeSettings, embeddingConfig } = options;
+
+  if (activeSettings.apiToken) {
+    return {
+      provider: activeSettings.provider,
+      apiToken: activeSettings.apiToken,
+      apiBaseUrl: activeSettings.apiBaseUrl,
+      model: activeSettings.embeddingModelId,
+    };
+  }
+
+  if (!embeddingConfig?.apiToken) {
+    return undefined;
+  }
+
+  const apiBaseUrl =
+    activeSettings.provider === 'custom'
+      ? activeSettings.apiBaseUrl
+      : embeddingConfig?.apiBaseUrl;
+
+  return {
+    provider: activeSettings.provider,
+    apiToken: embeddingConfig.apiToken,
+    apiBaseUrl,
+    model: activeSettings.embeddingModelId,
+  };
+};
+
+const buildRuntimeModelConfig = (options: {
+  activeSettings: SettingsState;
+  selectedConfigModel?: RagChatModel;
+}):
+  | {
+      provider?: string;
+      apiToken: string;
+      apiBaseUrl?: string;
+    }
+  | undefined => {
+  const { activeSettings, selectedConfigModel } = options;
+
+  if (activeSettings.apiToken) {
+    return {
+      provider: activeSettings.provider,
+      apiToken: activeSettings.apiToken,
+      apiBaseUrl: activeSettings.apiBaseUrl,
+    };
+  }
+
+  if (!selectedConfigModel?.apiToken) {
+    return undefined;
+  }
+
+  const apiBaseUrl =
+    activeSettings.provider === 'custom'
+      ? activeSettings.apiBaseUrl
+      : selectedConfigModel?.apiBaseUrl;
+
+  return {
+    provider: selectedConfigModel?.provider ?? activeSettings.provider,
+    apiToken: selectedConfigModel.apiToken,
+    apiBaseUrl,
+  };
+};
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -144,12 +260,35 @@ export const ChatInterface = (): React.ReactElement => {
   const [userProfile, setUserProfile] = useState<{ displayName?: string; picture?: string }>({});
   const [models, setModels] = useState<RagChatModel[]>([]);
   const [sources, setSources] = useState<RagChatSource[]>([]);
-  const [activeSettings, setActiveSettings] = useState<SettingsState | null>(null);
+  const [embeddingConfig, setEmbeddingConfig] = useState<RagChatEmbeddingConfig | undefined>();
+  const [activeSettings, setActiveSettings] = useState<SettingsState>(() => {
+    const config = ragChatConfigApi.getConfig();
+    const saved = localStorage.getItem('chatSettings');
+    const savedSettings: SettingsState | null = saved ? JSON.parse(saved) : null;
+    return buildSettingsFromConfig(config, savedSettings);
+  });
   const [uploading, setUploading] = useState(false);
   const [permissionEnabled, setPermissionEnabled] = useState(false);
 
   // When permissions are disabled everyone is treated as admin
   const effectiveCanAdmin = !permissionEnabled || canAdmin;
+
+  // Cleanup sensitive data from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('chatSettings');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.apiToken || parsed.apiBaseUrl) {
+          delete parsed.apiToken;
+          delete parsed.apiBaseUrl;
+          localStorage.setItem('chatSettings', JSON.stringify(parsed));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
 
   useEffect(() => {
     identityApi.getProfileInfo().then(profile => setUserProfile(profile));
@@ -159,20 +298,9 @@ export const ChatInterface = (): React.ReactElement => {
     const config = ragChatConfigApi.getConfig();
     setModels(config.models);
     setSources(config.sources);
+    setEmbeddingConfig(config.embedding);
     setPermissionEnabled(config.permissionEnabled);
-    // Load persisted settings or initialise from config defaults
-    const saved = localStorage.getItem('chatSettings');
-    if (saved) {
-      setActiveSettings(JSON.parse(saved));
-    } else {
-      setActiveSettings({
-        soundEnabled: true,
-        autoScroll: true,
-        modelId: config.defaultModelId ?? config.models[0]?.id ?? '',
-        temperature: 0.7,
-        activeSourceIds: config.defaultSourceIds ?? config.sources.map(s => s.id),
-      });
-    }
+    setActiveSettings(prev => buildSettingsFromConfig(config, prev));
   }, [ragChatConfigApi]);
   const [state, setState] = useState<ChatUIState>(() => {
     // Seed from localStorage as an optimistic cache while the backend loads
@@ -342,8 +470,15 @@ export const ChatInterface = (): React.ReactElement => {
       const conversationId = await ensureConversation('New Conversation');
       const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
       const formData = new FormData();
+      const runtimeEmbedding = buildRuntimeEmbeddingConfig({
+        activeSettings,
+        embeddingConfig,
+      });
       formData.append('file', file);
       formData.append('conversationId', conversationId);
+      if (runtimeEmbedding) {
+        formData.append('runtimeEmbedding', JSON.stringify(runtimeEmbedding));
+      }
 
       const response = await fetchApi.fetch(`${baseUrl}/upload`, {
         method: 'POST',
@@ -430,15 +565,34 @@ export const ChatInterface = (): React.ReactElement => {
       const abort = new AbortController();
       abortRef.current = abort;
 
+      const modelId = activeSettings.modelId;
+      if (!modelId) {
+        throw new Error(
+          'No model configured. Configure ragChat.providers.chatModel in app-config.yaml or provide credentials via Settings.',
+        );
+      }
+
+      const selectedConfigModel = models.find(model => model.id === modelId);
+      const runtimeModel = buildRuntimeModelConfig({
+        activeSettings,
+        selectedConfigModel,
+      });
+      const runtimeEmbedding = buildRuntimeEmbeddingConfig({
+        activeSettings,
+        embeddingConfig,
+      });
+
       const response = await fetchApi.fetch(`${baseUrl}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: content,
-          modelId: activeSettings?.modelId ?? '',
-          sourceIds: activeSettings?.activeSourceIds ?? [],
+          modelId,
+          sourceIds: activeSettings.activeSourceIds ?? [],
           conversationId: convId,
-          temperature: activeSettings?.temperature ?? 0.7,
+          temperature: activeSettings.temperature ?? 0.7,
+          ...(runtimeModel ? { runtimeModel } : {}),
+          ...(runtimeEmbedding ? { runtimeEmbedding } : {}),
         }),
         signal: abort.signal,
       });
@@ -658,8 +812,10 @@ export const ChatInterface = (): React.ReactElement => {
           open={state.showSettings}
           onClose={handleSettingsClose}
           onSave={settings => setActiveSettings(settings)}
+          initialSettings={activeSettings}
           configModels={models}
           configSources={sources}
+          configEmbedding={embeddingConfig}
           canAdmin={effectiveCanAdmin}
         />
 

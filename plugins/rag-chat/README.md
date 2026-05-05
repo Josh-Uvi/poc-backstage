@@ -15,16 +15,15 @@ Both plugins share a single `ragChat:` config block in `app-config.yaml`, but ea
 | `ragChat.defaultModelId` | **Frontend** | Pre-selects a model in the Settings panel |
 | `ragChat.defaultSourceIds` | **Frontend** | Pre-selects RAG sources in the Settings panel |
 | `ragChat.permission.enabled` | **Frontend + Backend** | Toggles permission enforcement in both plugins |
-| `ragChat.models[].id` | **Frontend + Backend** | Identifies the model in requests |
-| `ragChat.models[].name` | **Frontend only** | Display name shown in the Settings dropdown |
-| `ragChat.models[].provider` | **Frontend + Backend** | Provider type (`openai`, `anthropic`, `google`) |
-| `ragChat.models[].apiBaseUrl` | **Frontend + Backend** | Shown in Settings UI; used by backend to call the API |
-| `ragChat.models[].apiToken` | **Backend only** ⚠️ | Secret — never sent to the browser |
-| `ragChat.embedding.*` | **Backend only** ⚠️ | Embedding model config — never sent to the browser |
+| `ragChat.providers.type` | **Frontend + Backend** | Provider type (`openai`, `anthropic`, `google`, `custom`) |
+| `ragChat.providers.apiToken` | **Backend only** ⚠️ | Shared provider token — never sent to the browser |
+| `ragChat.providers.apiBaseUrl` | **Frontend + Backend** | Optional shared API base URL |
+| `ragChat.providers.chatModel[]` | **Frontend + Backend** | Available chat models for the selected provider |
+| `ragChat.providers.embedding.model` | **Frontend + Backend** | Default embedding model for the selected provider |
 | `ragChat.sources[].id/name/type/description` | **Frontend + Backend** | Source identity and display |
 | `ragChat.sources[].target` | **Backend only** | URL or file path for custom sources |
 
-> **Security rule:** `apiToken` and `embedding.apiToken` are read exclusively by the backend process. Backstage's config system serves the `ragChat:` block to the frontend browser bundle — **never put real API tokens in `app-config.yaml` without using environment variable substitution** (e.g. `${OPENAI_API_TOKEN}`). The frontend `RagChatConfigClient` intentionally parses `apiToken` from the config object it receives, but in practice the backend config pipeline resolves env vars server-side and the frontend only ever sees the model metadata (id, name, provider, apiBaseUrl).
+> **Security rule:** `providers.apiToken` is read exclusively by the backend process for production use. Backstage's config system serves the `ragChat:` block to the frontend browser bundle — **never put real API tokens in `app-config.yaml` without using environment variable substitution** (e.g. `${OPENAI_API_TOKEN}`).
 
 ---
 
@@ -60,7 +59,7 @@ These keys are read by the **frontend plugin only**. They control the UI default
 
 ragChat:
   # Pre-selects this model in the Settings panel on first load.
-  # Must match an id defined under ragChat.models (configured for the backend).
+  # Must match an id defined under ragChat.providers.chatModel.
   defaultModelId: gpt-4
 
   # Pre-selects these sources in the Settings panel on first load.
@@ -76,25 +75,17 @@ ragChat:
   permission:
     enabled: false
 
-  # Model display metadata — the frontend uses id, name, provider, apiBaseUrl
-  # to populate the Settings dropdown. apiToken is NOT needed here for the frontend;
-  # it is only required in the backend config.
-  models:
-    - id: gpt-4
-      name: GPT-4
-      provider: openai          # openai | anthropic | google | custom
-      apiBaseUrl: https://api.openai.com/v1
-      # apiToken is intentionally omitted here — set it in the backend config only
-
-    - id: claude-3-opus
-      name: Claude 3 Opus
-      provider: anthropic
-      apiBaseUrl: https://api.anthropic.com/v1
-
-    - id: gemini-pro
-      name: Gemini Pro
-      provider: google
-      apiBaseUrl: https://generativelanguage.googleapis.com/v1
+  providers:
+    type: openai          # openai | anthropic | google | custom
+    apiToken: ${OPENAI_API_TOKEN}   # backend only
+    apiBaseUrl: https://api.openai.com/v1
+    embedding:
+      model: text-embedding-3-small
+    chatModel:
+      - id: gpt-4
+        name: GPT-4
+      - id: gpt-4-turbo
+        name: GPT-4 Turbo
 
   # Source display metadata — the frontend uses id, name, type, description
   # to populate the Settings source chips.
@@ -111,7 +102,7 @@ ragChat:
       description: Query documentation from TechDocs
 ```
 
-For the **backend-only** keys (`apiToken`, `embedding`, `sources[].target`) see the [backend README](../rag-chat-backend/README.md#backend-only-configuration).
+For the **backend-only** keys (`providers.apiToken`, `sources[].target`) see the [backend README](../rag-chat-backend/README.md#backend-only-configuration).
 
 ---
 
@@ -140,9 +131,12 @@ yarn start
 
 ### Settings Panel
 - **Appearance** — auto-scroll and sound notification toggles (all users)
-- **Model** — select active model and temperature (all users); add/delete custom models (admin only)
-- **RAG Sources** — toggle which sources the assistant queries (all users); add/delete custom sources (admin only)
-- User-defined models and sources stored in `localStorage` under `ragChat.userModels` / `ragChat.userSources`
+- **Model and Embedding Configuration** — choose provider, chat model, embedding model, and temperature
+- If an `apiToken` is already present in `app-config.yaml` for the selected provider, the UI hides the API token input and uses the configured token automatically
+- For Google providers, the UI loads available chat and embedding models and presents them in separate dropdowns
+- Custom provider entry keeps the API token field and only shows the API base URL field for the `custom` provider option
+- **RAG Sources** — app-config sources are shown as read-only references while users can still add their own sources
+- User-defined sources are stored in `localStorage` under `ragChat.userSources`
 
 ### Permissions
 - `ragChatChatPermission` (`rag-chat.chat`) — gates chat and file upload
@@ -170,7 +164,7 @@ yarn start
 
 ### High Priority
 
-- [ ] **Wire to real backend — conversations**
+- [x] **Wire to real backend — conversations**
   - On mount, call `GET /api/rag-chat/conversations` and replace `localStorage` state
   - On create/delete, call backend endpoints and update local state optimistically
   - `localStorage` should become a cache only, not the source of truth

@@ -7,10 +7,29 @@ import express from 'express';
 import Router from 'express-promise-router';
 import { IConversationService } from './services/ConversationService';
 import { ILlmService } from './services/llm/LlmService';
-import { IRagService } from './services/rag/RagService';
+import {
+  IRagService,
+  RetrievedContext,
+  RuntimeEmbeddingConfig,
+} from './services/rag/RagService';
 import multer from 'multer';
 import { extractTextFromUpload } from './services/rag/FileTextExtractor';
 import { ragChatChatPermission, ragChatAdminPermission } from './permissions';
+
+const providerSchema = z.enum(['openai', 'anthropic', 'google', 'custom']);
+
+const runtimeModelSchema = z.object({
+  provider: providerSchema.optional(),
+  apiToken: z.string().optional(),
+  apiBaseUrl: z.string().optional(),
+});
+
+const runtimeEmbeddingSchema = z.object({
+  provider: providerSchema.optional(),
+  apiToken: z.string().optional(),
+  apiBaseUrl: z.string().optional(),
+  model: z.string().optional(),
+});
 
 const chatSchema = z.object({
   message: z.string().min(1),
@@ -18,6 +37,8 @@ const chatSchema = z.object({
   sourceIds: z.array(z.string()).optional().default([]),
   conversationId: z.string().optional(),
   temperature: z.number().min(0).max(1).optional().default(0.7),
+  runtimeModel: runtimeModelSchema.optional(),
+  runtimeEmbedding: runtimeEmbeddingSchema.optional(),
 });
 
 const upsertConversationSchema = z.object({
@@ -77,6 +98,28 @@ export async function createRouter({
   const uploadSingle: express.RequestHandler = upload.single('file') as
     unknown as express.RequestHandler;
 
+  const parseRuntimeEmbedding = (
+    value: unknown,
+  ): RuntimeEmbeddingConfig | undefined => {
+    if (typeof value !== 'string' || !value.trim()) {
+      return undefined;
+    }
+
+    let parsedValue;
+    try {
+      parsedValue = JSON.parse(value);
+    } catch (error) {
+      throw new InputError(`Invalid runtimeEmbedding JSON: ${error}`);
+    }
+
+    const parsed = runtimeEmbeddingSchema.safeParse(parsedValue);
+    if (!parsed.success) {
+      throw new InputError(parsed.error.toString());
+    }
+
+    return parsed.data as RuntimeEmbeddingConfig;
+  };
+
   const resolveConversation = async (
     userRef: string,
     conversationId: string | undefined,
@@ -114,6 +157,7 @@ export async function createRouter({
     const conversationId = typeof req.body?.conversationId === 'string'
       ? req.body.conversationId
       : undefined;
+    const runtimeEmbedding = parseRuntimeEmbedding(req.body?.runtimeEmbedding);
 
     if (!conversationId) {
       throw new InputError('conversationId is required');
@@ -138,7 +182,7 @@ export async function createRouter({
     const uploadId = crypto.randomUUID();
     const sourceId = `upload:${conversationId}:${uploadId}`;
 
-    await rag.indexDocument({
+    const documentOptions = {
       sourceId,
       documentText,
       metadata: {
@@ -149,7 +193,13 @@ export async function createRouter({
         ref: `upload:${req.file.originalname}`,
         title: req.file.originalname,
       },
-    });
+    };
+
+    if (runtimeEmbedding) {
+      await rag.indexDocument(documentOptions, runtimeEmbedding);
+    } else {
+      await rag.indexDocument(documentOptions);
+    }
 
     const source = await conversations.addConversationSource(
       {
@@ -192,7 +242,15 @@ export async function createRouter({
       throw new InputError(parsed.error.toString());
     }
 
-    const { message, modelId, sourceIds, conversationId, temperature } = parsed.data;
+    const {
+      message,
+      modelId,
+      sourceIds,
+      conversationId,
+      temperature,
+      runtimeModel,
+      runtimeEmbedding,
+    } = parsed.data;
 
     const existingConv = await resolveConversation(
       userRef,
@@ -214,13 +272,20 @@ export async function createRouter({
 
     // Index requested configured sources (lazy)
     for (const sourceId of sourceIds) {
-      await rag.indexSource(sourceId, credentials);
+      if (runtimeEmbedding) {
+        await rag.indexSource(sourceId, credentials, runtimeEmbedding);
+      } else {
+        await rag.indexSource(sourceId, credentials);
+      }
     }
 
     // Retrieve relevant context chunks
-    const contextChunks = retrievalSourceIds.length
-      ? await rag.retrieve(message, retrievalSourceIds, 5)
-      : [];
+    let contextChunks: RetrievedContext[] = [];
+    if (retrievalSourceIds.length) {
+      contextChunks = runtimeEmbedding
+        ? await rag.retrieve(message, retrievalSourceIds, 5, runtimeEmbedding)
+        : await rag.retrieve(message, retrievalSourceIds, 5);
+    }
 
     // Build LLM message history
     const llmMessages = [
@@ -260,7 +325,11 @@ export async function createRouter({
     let fullContent = '';
 
     try {
-      for await (const token of llm.stream(modelId, { messages: llmMessages, temperature })) {
+      const stream = runtimeModel
+        ? llm.stream(modelId, { messages: llmMessages, temperature }, runtimeModel)
+        : llm.stream(modelId, { messages: llmMessages, temperature });
+
+      for await (const token of stream) {
         fullContent += token;
         sendEvent({ type: 'token', token });
       }
