@@ -434,62 +434,77 @@ export const ChatInterface = (): React.ReactElement => {
     return conversation.id;
   };
 
-  const handleAttachFile = async (file: File) => {
-    setUploading(true);
+  const handleSendMessage = async (content: string, files: File[] = []) => {
+    let currentConvId = state.currentConversationId;
+    let fallbackTitle = 'New Conversation';
 
-    try {
-      const conversationId = await ensureConversation('New Conversation');
-      const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('conversationId', conversationId);
-
-      const response = await fetchApi.fetch(`${baseUrl}/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const source: UploadedSourceRef = {
-        ...data.source,
-        createdAt: new Date(data.source.createdAt),
-      };
-
-      setState(prev => ({
-        ...prev,
-        conversations: prev.conversations.map(conv =>
-          conv.id !== conversationId
-            ? conv
-            : {
-              ...conv,
-              sourceRefs: [...(conv.sourceRefs ?? []), source],
-              updatedAt: new Date(),
-            },
-        ),
-      }));
-
-      showSnackbar(`Uploaded ${file.name}`, 'success');
-    } catch (e: any) {
-      showSnackbar(e?.message ?? `Failed to upload ${file.name}`, 'error');
-      throw e;
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSendMessage = async (content: string) => {
     const initialConversation = state.conversations.find(
-      c => c.id === state.currentConversationId,
+      c => c.id === currentConvId,
     );
-    const convId = await ensureConversation(
-      initialConversation?.messages.length
-        ? initialConversation.title
-        : content.trim().slice(0, 40) + (content.trim().length > 40 ? '\u2026' : ''),
-    );
+
+    if (initialConversation?.messages.length) {
+      fallbackTitle = initialConversation.title;
+    } else if (content.trim()) {
+      fallbackTitle = content.trim().slice(0, 40) + (content.trim().length > 40 ? '\u2026' : '');
+    }
+
+    currentConvId = await ensureConversation(fallbackTitle);
+
+    // Upload pending files first
+    if (files.length > 0) {
+      setUploading(true);
+      try {
+        const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
+        const newSources: UploadedSourceRef[] = [];
+
+        for (const file of files) {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('conversationId', currentConvId);
+
+          const response = await fetchApi.fetch(`${baseUrl}/upload`, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error(`Upload failed for ${file.name}: ${response.status}`);
+          }
+
+          const data = await response.json();
+          newSources.push({
+            ...data.source,
+            createdAt: new Date(data.source.createdAt),
+          });
+        }
+
+        setState(prev => ({
+          ...prev,
+          conversations: prev.conversations.map(conv =>
+            conv.id !== currentConvId
+              ? conv
+              : {
+                ...conv,
+                sourceRefs: [...(conv.sourceRefs ?? []), ...newSources],
+                updatedAt: new Date(),
+              },
+          ),
+        }));
+        
+        showSnackbar(`Uploaded ${files.length} file(s)`, 'success');
+      } catch (e: any) {
+        showSnackbar(e?.message ?? `Failed to upload files`, 'error');
+        setUploading(false);
+        return; // Abort send if upload fails
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    // After potential uploads, if there is no text content to send, we just stop here.
+    if (!content.trim()) {
+      return;
+    }
 
     const userMessage: Message = {
       id: `msg_${Date.now()}_user`,
@@ -510,7 +525,7 @@ export const ChatInterface = (): React.ReactElement => {
     setState(prev => ({
       ...prev,
       conversations: prev.conversations.map(conv => {
-        if (conv.id !== convId) return conv;
+        if (conv.id !== currentConvId) return conv;
         const isFirstMessage = conv.messages.length === 0;
         return {
           ...conv,
@@ -529,22 +544,25 @@ export const ChatInterface = (): React.ReactElement => {
       const abort = new AbortController();
       abortRef.current = abort;
 
-      const modelId = activeSettings.modelId;
-      if (!modelId) {
-        throw new Error(
-          'No model configured. Configure ragChat.providers.chatModel in app-config.yaml or provide credentials via Settings.',
-        );
-      }
+      const convToUpdate = state.conversations.find(c => c.id === currentConvId);
+      const sourceIds = convToUpdate?.sourceRefs?.map(s => s.sourceId) ?? [];
 
       const response = await fetchApi.fetch(`${baseUrl}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
         body: JSON.stringify({
           message: content,
-          modelId,
-          sourceIds: activeSettings.activeSourceIds ?? [],
-          conversationId: convId,
+          modelId: activeSettings.modelId,
+          sourceIds: [
+            ...(activeSettings.activeSourceIds ?? []),
+            ...sourceIds,
+          ],
+          conversationId: currentConvId,
           temperature: activeSettings.temperature ?? 0.7,
+          systemPrompt: activeSettings.systemPrompt,
         }),
         signal: abort.signal,
       });
@@ -573,7 +591,7 @@ export const ChatInterface = (): React.ReactElement => {
             setState(prev => ({
               ...prev,
               conversations: prev.conversations.map(conv =>
-                conv.id !== convId ? conv : {
+                conv.id !== currentConvId ? conv : {
                   ...conv,
                   messages: conv.messages.map(msg =>
                     msg.id !== assistantMessageId ? msg : {
@@ -589,7 +607,7 @@ export const ChatInterface = (): React.ReactElement => {
               ...prev,
               loading: false,
               conversations: prev.conversations.map(conv =>
-                conv.id !== convId ? conv : {
+                conv.id !== currentConvId ? conv : {
                   ...conv,
                   messages: conv.messages.map(msg =>
                     msg.id !== assistantMessageId ? msg : { ...msg, streaming: false, citations: event.citations, usage: event.usage },
@@ -612,7 +630,7 @@ export const ChatInterface = (): React.ReactElement => {
         ...prev,
         loading: false,
         conversations: prev.conversations.map(conv =>
-          conv.id !== convId ? conv : {
+          conv.id !== currentConvId ? conv : {
             ...conv,
             messages: conv.messages.filter(msg => msg.id !== assistantMessageId),
           },
@@ -900,7 +918,6 @@ export const ChatInterface = (): React.ReactElement => {
               {currentConversation && (
                 <ChatInput
                   onSendMessage={handleSendMessage}
-                  onAttachFile={handleAttachFile}
                   disabled={state.loading || uploading}
                 />
               )}

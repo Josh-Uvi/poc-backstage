@@ -110,6 +110,7 @@ export interface SettingsState {
   apiBaseUrl?: string;
   temperature: number;
   activeSourceIds: string[];
+  systemPrompt?: string;
 }
 
 interface ModelOption {
@@ -189,6 +190,7 @@ export const SettingsPanel = ({
       apiBaseUrl: initial?.apiBaseUrl ?? '',
       temperature: initial?.temperature ?? 0.7,
       activeSourceIds: initial?.activeSourceIds ?? configSources.map(source => source.id),
+      systemPrompt: initial?.systemPrompt ?? '',
     };
   }, [configEmbedding, configModels, configSources, initialSettings]);
   const [userSources, setUserSources] = useState<RagChatSource[]>(loadUserSources);
@@ -483,6 +485,31 @@ export const SettingsPanel = ({
           </Box>
 
           <Divider className={classes.divider} />
+
+          {canAdmin && (
+            <>
+              <Box className={classes.section}>
+                <Typography variant="subtitle2" className={classes.sectionTitle}>
+                  System Instructions
+                </Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  maxRows={8}
+                  label="Custom System Prompt (Optional)"
+                  placeholder="You are a helpful Backstage assistant..."
+                  value={settings.systemPrompt ?? ''}
+                  onChange={e => handleChange('systemPrompt', e.target.value)}
+                  margin="dense"
+                  variant="outlined"
+                  size="small"
+                  helperText="Override the default persona. Retrieval instructions will be automatically appended."
+                />
+              </Box>
+              <Divider className={classes.divider} />
+            </>
+          )}
 
           <Box className={classes.section}>
             <Box display="flex" justifyContent="space-between" alignItems="center">

@@ -38,6 +38,7 @@ const chatSchema = z.object({
   sourceIds: z.array(z.string()).optional().default([]),
   conversationId: z.string().optional(),
   temperature: z.number().min(0).max(1).optional().default(0.7),
+  systemPrompt: z.string().optional(),
   runtimeModel: runtimeModelSchema.optional(),
   runtimeEmbedding: runtimeEmbeddingSchema.optional(),
 });
@@ -255,6 +256,7 @@ export async function createRouter({
       sourceIds,
       conversationId,
       temperature,
+      systemPrompt,
       runtimeModel,
       runtimeEmbedding,
     } = parsed.data;
@@ -303,6 +305,9 @@ export async function createRouter({
     // Build LLM message history with system instructions at the top
     const llmMessages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [];
 
+    const basePersona = systemPrompt?.trim() || 
+      'You are a helpful Backstage assistant. Your goal is to help users navigate their developer portal and understand their software ecosystem.';
+
     if (contextChunks.length) {
       const contextText = contextChunks
         .map((c, i) => `[${i + 1}] (${c.metadata.ref ?? c.metadata.title ?? c.metadata.sourceId})\n${c.text}`)
@@ -310,7 +315,7 @@ export async function createRouter({
       llmMessages.push({
         role: 'system',
         content:
-          `You are a helpful Backstage assistant. Your goal is to help users navigate their developer portal and understand their software ecosystem.\n\n` +
+          `${basePersona}\n\n` +
           `Retrieved Context:\n${contextText}\n\n` +
           `Instructions:\n` +
           `1. For specific technical questions about software components, documentation, or infrastructure, prioritize using the retrieved context above.\n` +
@@ -324,13 +329,16 @@ export async function createRouter({
       llmMessages.push({
         role: 'system',
         content:
-          `You are a helpful Backstage assistant. Answer using knowledge from these sources: ${retrievalSourceIds.join(', ')}.\n` +
+          `${basePersona}\n\n` +
+          `Answer using knowledge from these sources: ${retrievalSourceIds.join(', ')}.\n` +
           `Do not repeat previous parts of the conversation in your answer.`,
       });
     } else {
       llmMessages.push({
         role: 'system',
-        content: `You are a helpful Backstage assistant. Provide direct and concise answers. Do not repeat conversation history.`,
+        content: systemPrompt?.trim() 
+          ? systemPrompt.trim()
+          : `You are a helpful Backstage assistant. Provide direct and concise answers. Do not repeat conversation history.`,
       });
     }
 

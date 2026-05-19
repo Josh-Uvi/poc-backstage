@@ -162,10 +162,10 @@ yarn lint
 
 ### Medium Priority
 
-- [ ] **Advanced File Preview**
+- [x] **Advanced File Preview**
   - Preview the content of uploaded documents (TXT/MD) before sending the message.
 
-- [ ] **Custom System Prompt Tuning**
+- [x] **Custom System Prompt Tuning**
   - Allow administrators to adjust the base system instructions via the Settings panel.
 
 ### Lower Priority
