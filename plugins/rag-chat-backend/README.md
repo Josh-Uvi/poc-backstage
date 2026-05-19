@@ -115,6 +115,7 @@ All endpoints are mounted under `/api/rag-chat/`.
 | `GET` | `/conversations` | `rag-chat.chat` | List conversations for the authenticated user |
 | `POST` | `/conversations` | `rag-chat.chat` | Create or update a conversation |
 | `DELETE` | `/conversations/:id` | `rag-chat.chat` | Delete a conversation |
+| `POST` | `/credentials` | `rag-chat.chat` | Save user-specific API tokens for a model |
 | `GET` | `/admin/config` | `rag-chat.admin` | Return safe server-side config (no tokens) |
 
 Permissions are only enforced when `ragChat.permission.enabled: true`.
@@ -124,7 +125,7 @@ Permissions are only enforced when `ragChat.permission.enabled: true`.
 ```
 data: {"type":"token","token":"Hello"}
 data: {"type":"token","token":" world"}
-data: {"type":"done","conversationId":"conv-123","messageId":"msg-456"}
+data: {"type":"done","conversationId":"conv-123","messageId":"msg-456","citations":[],"usage":{"totalTokens":15}}
 data: {"type":"error","error":"No LLM provider configured for modelId 'gpt-4'"}
 ```
 
@@ -144,10 +145,10 @@ yarn test
 
 ### LLM Providers
 - **OpenAI** — `gpt-3.5-turbo`, `gpt-4`, `gpt-4o`, any OpenAI-compatible endpoint
-- **Anthropic** — `claude-3-*` via `@anthropic-ai/sdk`
-- **Google Gemini** — `gemini-pro` and others via `@google/genai`
-- Common `LlmProvider` interface with `chat()` and `stream()` — swap providers without changing the router
-- Models without a configured `apiToken` are skipped at startup with a warning
+- **Anthropic** — `claude-3-*` via `@anthropic-ai/sdk`, supporting native `system` role
+- **Google Gemini** — `gemini-pro` and others via `@google/genai`, supporting native `systemInstruction`
+- Common `LlmProvider` interface with `chat()` and `stream()`
+- Support for `system`, `user`, and `assistant` roles across all providers
 
 ### RAG Pipeline
 - **Catalog** — fetches API, Component, Group, Template, User entities; chunks kind/name/ref/description/tags/spec
@@ -158,16 +159,22 @@ yarn test
 - **Embedding** — `OpenAiEmbeddingProvider`, `GoogleEmbeddingProvider`, `AnthropicEmbeddingProvider`
 - **Vector store** — `InMemoryVectorStore` (cosine similarity) for development; interface-based for easy swap to pgvector
 - **Retrieval** — lazy indexing on first query; top-5 chunks injected as system context before conversation history
+- **Citations** — Derived from retrieved RAG chunks and returned in the `done` event
+
+### Prompt Engineering
+- **System Role Optimization**: Behavioral instructions and RAG context are isolated in the `system` role to prevent LLM hallucination and history repetition.
+- **General Chat Handling**: Professional handling of greetings and capability inquiries without irrelevant citations.
 
 ### Conversation Persistence
 - Knex-backed via Backstage's `DatabaseService` — SQLite for dev, PostgreSQL for production
 - Auto-migration on startup
 - Tables: `rag_chat_conversations`, `rag_chat_messages`, `rag_chat_conversation_sources`
+- Token usage tracking (`promptTokens`, `completionTokens`, `totalTokens`) persisted per message
 - All data scoped per `user_ref`
 
 ### Streaming
 - `POST /chat` streams tokens via SSE as they arrive from the LLM
-- All three providers implement `stream()` returning `AsyncIterable<string>`
+- All three providers implement `stream()` returning `AsyncIterable<LlmStreamEvent>`
 - Full response assembled and persisted to the database on completion
 - Auth/permission errors emitted as `{ type: 'error' }` SSE events
 
@@ -177,19 +184,21 @@ yarn test
 - Registered via `coreServices.permissionsRegistry`
 - Controlled by `ragChat.permission.enabled` (default `false`)
 
-### Architecture
+---
+
+## Architecture
 
 | File | Purpose |
-|------|---------|
+|---|---|
 | `src/plugin.ts` | Plugin registration, reads config, wires all services |
 | `src/router.ts` | Express router — all API endpoints |
 | `src/permissions.ts` | Permission definitions (shared with frontend plugin) |
 | `src/services/ConversationService.ts` | Knex-backed conversation and message persistence |
-| `src/services/llm/LlmProvider.ts` | `LlmProvider` interface (`chat` + `stream`) |
+| `src/services/llm/LlmProvider.ts` | `LlmProvider` interface and role definitions |
 | `src/services/llm/LlmService.ts` | Builds providers from config, exposes `ILlmService` |
 | `src/services/llm/OpenAiProvider.ts` | OpenAI chat and streaming |
-| `src/services/llm/AnthropicProvider.ts` | Anthropic chat and streaming |
-| `src/services/llm/GoogleProvider.ts` | Google Gemini chat and streaming |
+| `src/services/llm/AnthropicProvider.ts` | Anthropic chat and streaming with system role support |
+| `src/services/llm/GoogleProvider.ts` | Google Gemini chat and streaming with systemInstruction support |
 | `src/services/rag/RagService.ts` | Orchestrates indexing and retrieval |
 | `src/services/rag/EmbeddingProvider.ts` | Embedding interface + implementations |
 | `src/services/rag/VectorStore.ts` | `VectorStore` interface + `InMemoryVectorStore` |
@@ -218,21 +227,7 @@ yarn test
   - Add a `SchedulerService` task to re-index catalog and TechDocs on a configurable interval
   - Track `indexed_at` per source in the database to skip unchanged content
 
-- [ ] **Source citations in the `done` event**
-  - Include `citations: [{ title, ref, excerpt }]` derived from retrieved RAG chunks
-  - Frontend renders them as collapsible cards below the assistant bubble
-
-- [ ] **Wire frontend to this backend**
-  - The frontend `handleSendMessage` still uses a mock `setTimeout`
-  - The frontend conversation list is still driven by `localStorage`
-  - See [frontend README TODO](../rag-chat/README.md#todo--remaining-work-to-production)
-
 ### Medium Priority
-
-- [ ] **Secure user-defined model tokens**
-  - User-defined models added via the Settings UI store `apiToken` in `localStorage` — insecure
-  - Add `POST /admin/models` and `DELETE /admin/models/:id` (gated by `ragChatAdminPermission`)
-  - Frontend sends only `modelId`; backend resolves the token
 
 - [ ] **PDF extraction improvements**
   - Current extraction reads the raw text layer only — scanned PDFs return empty
@@ -254,9 +249,6 @@ yarn test
   - `PineconeVectorStore` and `WeaviateVectorStore` behind the `VectorStore` interface
   - Configurable via `ragChat.vectorStore.type`
 
-- [ ] **Anthropic full conversation history**
-  - Properly map alternating user/assistant turns to Anthropic's message format
-
 - [ ] **OpenAPI spec**
   - Define an OpenAPI spec using Backstage's tooling for auto-generated docs and client SDKs
 
@@ -264,4 +256,4 @@ yarn test
   - Unit tests for `FileTextExtractor` with real PDF/DOCX fixtures
   - Unit tests for each `EmbeddingProvider` with mocked HTTP
   - Integration test for the full RAG pipeline: index → embed → retrieve → inject → generate
-  - Test `permissionsEnabled: false` path
+  - Stabilize frontend JSDOM event simulation for `keyDown` input submission

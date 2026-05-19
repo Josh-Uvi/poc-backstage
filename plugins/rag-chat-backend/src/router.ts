@@ -310,13 +310,15 @@ export async function createRouter({
       llmMessages.push({
         role: 'system',
         content:
-          `You are a helpful Backstage assistant. Use the following context to answer the user's question directly.\n\n` +
-          `Context:\n${contextText}\n\n` +
+          `You are a helpful Backstage assistant. Your goal is to help users navigate their developer portal and understand their software ecosystem.\n\n` +
+          `Retrieved Context:\n${contextText}\n\n` +
           `Instructions:\n` +
-          `1. Answer only based on the context provided above.\n` +
-          `2. Do not repeat the user's previous questions or your previous answers in your response.\n` +
-          `3. Do not start with phrases like "Based on the context" or "According to the history".\n` +
-          `4. If the context does not contain enough information, say so clearly.`,
+          `1. For specific technical questions about software components, documentation, or infrastructure, prioritize using the retrieved context above.\n` +
+          `2. If the user is greeting you, asking about your capabilities, or making general inquiries that the context doesn't cover, answer professionally using your internal knowledge about being a Backstage assistant.\n` +
+          `3. When using the context, provide citations in the format [1], [2], etc.\n` +
+          `4. Do NOT use citations if you are answering from general knowledge (e.g., greetings or capability overviews).\n` +
+          `5. Do not repeat conversation history or start with phrases like "Based on the context".\n` +
+          `6. If the question is highly specific and neither the context nor your knowledge can answer it, explain what information is missing.`,
       });
     } else if (retrievalSourceIds.length) {
       llmMessages.push({
@@ -382,8 +384,8 @@ export async function createRouter({
         userRef,
       );
 
-      const isGeneralChat = message.trim().length < 50 && 
-        /^(hi|hello|hey|howdy|hola|greetings|what's up|how are you|what can you do|who are you|thanks|thank you|bye|goodbye)/i.test(message.trim());
+      const isGeneralChat = message.trim().length < 100 && 
+        /^(hi|hello|hey|howdy|hola|greetings|what's up|how are you|what can you do|who are you|thanks|thank you|bye|goodbye|what can you help|help me)/i.test(message.trim());
 
       sendEvent({
         type: 'done',

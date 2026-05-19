@@ -4,7 +4,6 @@ A Backstage **frontend** plugin that provides an AI-powered chat interface with 
 
 Requires [`@internal/backstage-plugin-rag-chat-backend`](../rag-chat-backend/README.md) to be installed and running.
 
----
 
 ## How the two plugins relate
 
@@ -25,7 +24,6 @@ Both plugins share a single `ragChat:` config block in `app-config.yaml`, but ea
 
 > **Security rule:** `providers.apiToken` is read exclusively by the backend process for production use. Backstage's config system serves the `ragChat:` block to the frontend browser bundle — **never put real API tokens in `app-config.yaml` without using environment variable substitution** (e.g. `${OPENAI_API_TOKEN}`).
 
----
 
 ## Installation
 
@@ -48,7 +46,6 @@ export default createApp({
 
 The plugin is available at [/rag-chat](http://localhost:3000/rag-chat).
 
----
 
 ## Frontend-only configuration
 
@@ -104,45 +101,37 @@ ragChat:
 
 For the **backend-only** keys (`providers.apiToken`, `sources[].target`) see the [backend README](../rag-chat-backend/README.md#backend-only-configuration).
 
----
+
 
 ## Development
 
 ```sh
 cd plugins/rag-chat
 yarn start
+yarn test
+yarn lint
 ```
 
----
+
 
 ## Implemented Features
 
 ### Chat Interface
-- Multi-conversation sidebar — create, select, delete; title derived from first message
-- Real-time SSE streaming — tokens appear as they arrive with a blinking cursor
-- Modern rounded chat bubbles, theme-aware (Backstage light and dark modes)
-- Logged-in user avatar — profile picture from `identityApiRef`, falls back to initials
-- Auto-scroll to latest message (configurable)
+- **Rich Messaging**: Markdown rendering via `react-markdown` with GFM support and syntax highlighting for code blocks.
+- **Citations**: Source citations derived from RAG context are rendered as interactive cards below assistant responses.
+- **Real-time Streaming**: SSE streaming with a typing indicator and auto-scroll.
+- **Conversation Management**: Multi-conversation sidebar with search, inline renaming, and export (Markdown/JSON).
+- **Usage Tracking**: Per-message token counts and estimated cost indicators.
 
 ### File Uploads
-- Attach button opens a native file picker (TXT, PDF, DOCX)
-- Selected file shown as a dismissible chip above the input
-- File is uploaded to `POST /api/rag-chat/upload` and indexed for RAG retrieval within that conversation
+- Attach files (TXT, PDF, DOCX) directly to a conversation.
+- Upload progress bar and optimistic UI updates.
+- Scoped indexing ensures uploaded files are only retrieved for the specific conversation.
 
 ### Settings Panel
-- **Appearance** — auto-scroll and sound notification toggles (all users)
-- **Model and Embedding Configuration** — choose provider, chat model, embedding model, and temperature
-- If an `apiToken` is already present in `app-config.yaml` for the selected provider, the UI hides the API token input and uses the configured token automatically
-- For Google providers, the UI loads available chat and embedding models and presents them in separate dropdowns
-- Custom provider entry keeps the API token field and only shows the API base URL field for the `custom` provider option
-- **RAG Sources** — app-config sources are shown as read-only references while users can still add their own sources
-- User-defined sources are stored in `localStorage` under `ragChat.userSources`
-
-### Permissions
-- `ragChatChatPermission` (`rag-chat.chat`) — gates chat and file upload
-- `ragChatAdminPermission` (`rag-chat.admin`) — gates model/source management in Settings
-- Disabled by default (`ragChat.permission.enabled: false`)
-- When disabled, all authenticated users have full access including admin features
+- **Smart Configuration**: Permission-aware controls for models, sources, and temperature.
+- **Provider Management**: Auto-hiding API tokens when configured server-side.
+- **Appearance**: Toggles for auto-scroll and notification sounds.
 
 ### Architecture
 
@@ -152,11 +141,10 @@ yarn start
 | `src/api.ts` | `RagChatConfigApi` — reads frontend-relevant keys from `ragChat:` config |
 | `src/permissions.ts` | Permission definitions (shared with backend) |
 | `src/components/ChatUI/ChatInterface.tsx` | Main layout, SSE stream consumer, identity fetch |
-| `src/components/ChatUI/ChatMessage.tsx` | Message bubble with avatar and streaming cursor |
-| `src/components/ChatUI/ChatInput.tsx` | Text input with file attachment |
-| `src/components/ChatUI/ChatSidebar.tsx` | Conversation list |
+| `src/components/ChatUI/ChatMessage.tsx` | Message bubble with Markdown and Citation rendering |
+| `src/components/ChatUI/ChatInput.tsx` | Text input with file attachment and keyboard shortcuts |
+| `src/components/ChatUI/ChatSidebar.tsx` | Conversation list with search and filter |
 | `src/components/ChatUI/SettingsPanel.tsx` | Settings dialog with permission-aware controls |
-| `src/components/ChatUI/types.ts` | Shared TypeScript types |
 
 ---
 
@@ -164,44 +152,25 @@ yarn start
 
 ### High Priority
 
-- [x] **Wire to real backend — conversations**
-  - On mount, call `GET /api/rag-chat/conversations` and replace `localStorage` state
-  - On create/delete, call backend endpoints and update local state optimistically
-  - `localStorage` should become a cache only, not the source of truth
+- [ ] **Stabilize JSDOM test environment**
+  - Fix flaky event simulation for `keyDown` input submission in `ChatInterface.test.tsx`.
+  - Current JSDOM limitations cause inconsistencies in synthetic event propagation for complex MUI components.
 
-- [x] **Wire to real backend — chat**
-  - `handleSendMessage` currently uses a mock `setTimeout` — replace with a real `fetchApi.fetch` call to `POST /api/rag-chat/chat`
-  - Consume the SSE stream token-by-token using `ReadableStream`
-  - Surface `{ type: 'error' }` SSE events via the snackbar
-
-- [x] **Markdown rendering in message bubbles**
-  - Replace plain `<Typography>` with `react-markdown` + `remark-gfm`
-  - Add syntax highlighting for code blocks via `react-syntax-highlighter`
-
-- [x] **Source citations**
-  - Render `citations` from the `done` SSE event as collapsible cards below the assistant bubble
+- [ ] **Response Feedback System**
+  - Add thumbs up/down buttons to assistant messages to capture user satisfaction.
+  - Send feedback to the backend for RAG quality auditing.
 
 ### Medium Priority
 
-- [x] **Move user-defined model tokens server-side**
-  - Storing `apiToken` in `localStorage` is insecure
-  - Frontend should only send `modelId`; backend resolves the token
+- [ ] **Advanced File Preview**
+  - Preview the content of uploaded documents (TXT/MD) before sending the message.
 
-- [x] **Conversation search and filter**
-  - Search input in the sidebar to filter by title or message content
-
-- [x] **Rename conversation inline**
-  - Double-click a conversation title in the sidebar to edit it in place
-
-- [x] **Export conversation**
-  - Download the current conversation as Markdown or JSON
-
-- [x] **Upload progress indicator**
-  - Show a progress bar while a file is being uploaded and indexed
+- [ ] **Custom System Prompt Tuning**
+  - Allow administrators to adjust the base system instructions via the Settings panel.
 
 ### Lower Priority
 
-- [x] **Token / cost indicator** per message
-- [x] **Keyboard shortcuts** (`Ctrl+K` new conversation, `Escape` close Settings)
-- [x] **Accessibility audit** — ARIA labels, keyboard navigation
-- [x] **Expand test coverage** — SSE stream consumption, `SettingsPanel` with `canAdmin=false`, `RagChatConfigClient` edge cases
+- [ ] **Image Generation Support**
+  - Integrate with DALL-E or Stable Diffusion for image generation responses.
+- [ ] **Voice Input**
+  - Add Web Speech API integration for hands-free queries.
