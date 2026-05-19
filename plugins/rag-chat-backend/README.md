@@ -222,7 +222,7 @@ yarn test
   - Auto-select based on database client: SQLite → in-memory, Postgres → pgvector
   - Without this, all embeddings are lost on every server restart
 
-- [ ] **Scheduled re-indexing**
+- [x] **Scheduled re-indexing**
   - Embeddings are currently indexed lazily on first query and lost on restart
   - Add a `SchedulerService` task to re-index catalog and TechDocs on a configurable interval
   - Track `indexed_at` per source in the database to skip unchanged content

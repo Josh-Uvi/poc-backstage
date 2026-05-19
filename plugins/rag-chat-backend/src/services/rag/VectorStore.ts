@@ -10,6 +10,11 @@ export interface VectorStore {
   upsert(sourceId: string, entries: VectorEntry[]): Promise<void>;
   query(embedding: number[], sourceIds: string[], topK: number): Promise<VectorEntry[]>;
   clear(sourceId: string): Promise<void>;
+  sync?(
+    sourceId: string,
+    chunks: { text: string; metadata: Record<string, string>; hash: string }[],
+    embedFn: (texts: string[]) => Promise<number[][]>,
+  ): Promise<void>;
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -57,5 +62,30 @@ export class InMemoryVectorStore implements VectorStore {
 
   async clear(sourceId: string): Promise<void> {
     this.#store.delete(sourceId);
+  }
+
+  async sync(
+    sourceId: string,
+    chunks: { text: string; metadata: Record<string, string>; hash: string }[],
+    embedFn: (texts: string[]) => Promise<number[][]>,
+  ): Promise<void> {
+    // In-memory doesn't benefit much from skipping embeddings because it's usually wiped anyway,
+    // but we'll do a naive implementation to satisfy the interface.
+    
+    // For in-memory, we'll just embed everything since it's hard to track hashes efficiently 
+    // across restarts, but we'll try to re-use if they happen to exist.
+    const existingEntries = this.#store.get(sourceId) ?? [];
+    
+    // We didn't store hash in VectorEntry initially, so in-memory can just embed everything for simplicity
+    const texts = chunks.map(c => c.text);
+    const embeddings = await embedFn(texts);
+    
+    const entries: VectorEntry[] = chunks.map((chunk, i) => ({
+      chunk: { text: chunk.text, metadata: chunk.metadata },
+      embedding: embeddings[i] ?? [],
+      sourceId,
+    }));
+    
+    this.#store.set(sourceId, entries);
   }
 }

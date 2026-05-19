@@ -64,4 +64,60 @@ export class PgVectorStore implements VectorStore {
   async clear(sourceId: string): Promise<void> {
     await this.#db('rag_chat_embeddings').where({ source_id: sourceId }).delete();
   }
+
+  async sync(
+    sourceId: string,
+    chunks: { text: string; metadata: Record<string, string>; hash: string }[],
+    embedFn: (texts: string[]) => Promise<number[][]>,
+  ): Promise<void> {
+    if (chunks.length === 0) {
+      await this.clear(sourceId);
+      return;
+    }
+
+    const now = new Date();
+    const hashes = chunks.map(c => c.hash);
+
+    await this.#db.transaction(async trx => {
+      // Find which hashes already exist
+      const existing = await trx('rag_chat_embeddings')
+        .select('content_hash')
+        .where({ source_id: sourceId })
+        .whereIn('content_hash', hashes);
+
+      const existingHashes = new Set(existing.map((row: any) => row.content_hash));
+      const newChunks = chunks.filter(c => !existingHashes.has(c.hash));
+
+      // Update timestamp for existing chunks
+      if (existingHashes.size > 0) {
+        await trx('rag_chat_embeddings')
+          .where({ source_id: sourceId })
+          .whereIn('content_hash', Array.from(existingHashes))
+          .update({ indexed_at: now });
+      }
+
+      // Embed and insert new chunks
+      if (newChunks.length > 0) {
+        const texts = newChunks.map(c => c.text);
+        const embeddings = await embedFn(texts);
+
+        const rows = newChunks.map((chunk, i) => ({
+          source_id: sourceId,
+          text: chunk.text,
+          metadata: JSON.stringify(chunk.metadata),
+          embedding: `[${embeddings[i].join(',')}]`,
+          content_hash: chunk.hash,
+          indexed_at: now,
+        }));
+
+        await trx('rag_chat_embeddings').insert(rows);
+      }
+
+      // Delete any rows that were not seen during this sync
+      await trx('rag_chat_embeddings')
+        .where({ source_id: sourceId })
+        .where('indexed_at', '<', now)
+        .delete();
+    });
+  }
 }

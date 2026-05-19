@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {
   coreServices,
   createServiceFactory,
@@ -276,23 +277,41 @@ export class RagService implements IRagService {
     }
 
     const embeddingProvider = this.#resolveEmbeddingProvider(runtimeConfig);
-    const texts = chunks.map(c => c.text);
-    const embeddings = await embeddingProvider.embed(texts);
+    const storeKey = this.#sourceKey(sourceId, runtimeConfig);
 
-    if (!embeddings.length) {
-      this.#logger.warn(`Embedding returned empty for source '${sourceId}'`);
-      return;
+    if (this.#store.sync) {
+      const chunksWithHash = chunks.map(c => ({
+        text: c.text,
+        metadata: c.metadata,
+        hash: crypto.createHash('md5').update(c.text).digest('hex'),
+      }));
+
+      await this.#store.sync(
+        storeKey,
+        chunksWithHash,
+        texts => embeddingProvider.embed(texts)
+      );
+    } else {
+      // Fallback
+      const texts = chunks.map(c => c.text);
+      const embeddings = await embeddingProvider.embed(texts);
+
+      if (!embeddings.length) {
+        this.#logger.warn(`Embedding returned empty for source '${sourceId}'`);
+        return;
+      }
+
+      const entries: VectorEntry[] = chunks.map((chunk, i) => ({
+        chunk,
+        embedding: embeddings[i] ?? [],
+        sourceId,
+      }));
+
+      await this.#store.upsert(storeKey, entries);
     }
 
-    const entries: VectorEntry[] = chunks.map((chunk, i) => ({
-      chunk,
-      embedding: embeddings[i] ?? [],
-      sourceId,
-    }));
-
-    await this.#store.upsert(this.#sourceKey(sourceId, runtimeConfig), entries);
     this.#logger.info(
-      `Indexed ${entries.length} chunks for source '${sourceId}'`,
+      `Indexed ${chunks.length} chunks for source '${sourceId}'`,
     );
   }
 
