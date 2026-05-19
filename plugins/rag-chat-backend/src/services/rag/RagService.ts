@@ -5,6 +5,7 @@ import {
   LoggerService,
   RootConfigService,
   BackstageCredentials,
+  DatabaseService,
 } from '@backstage/backend-plugin-api';
 import { CatalogClient } from '@backstage/catalog-client';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
@@ -15,6 +16,7 @@ import {
   AnthropicEmbeddingProvider,
 } from './EmbeddingProvider';
 import { InMemoryVectorStore, VectorStore, VectorEntry } from './VectorStore';
+import { PgVectorStore } from './PgVectorStore';
 import { CatalogRagSource } from './CatalogRagSource';
 import { TechDocsRagSource } from './TechDocsRagSource';
 import { CustomRagSource, CustomSourceConfig } from './CustomRagSource';
@@ -61,16 +63,28 @@ export class RagService implements IRagService {
   readonly #customSource: CustomRagSource;
   readonly #customSources: Map<string, CustomSourceConfig>;
 
-  static create(options: {
+  static async create(options: {
     config: RootConfigService;
     logger: LoggerService;
     catalog: CatalogClient;
-  }): RagService {
-    const { config, logger, catalog } = options;
+    database: DatabaseService;
+  }): Promise<RagService> {
+    const { config, logger, catalog, database } = options;
 
     const defaultEmbeddingConfig = RagService.#readEmbeddingConfig(config);
     const embedding = RagService.#buildEmbeddingProvider(defaultEmbeddingConfig, logger);
-    const store = new InMemoryVectorStore();
+
+    const client = await database.getClient();
+    const clientType = client.client.config.client;
+    
+    let store: VectorStore;
+    if (clientType === 'pg' || clientType === 'postgresql') {
+      logger.info('Using PgVectorStore for RAG embeddings');
+      store = new PgVectorStore(client as any);
+    } else {
+      logger.info('Using InMemoryVectorStore for RAG embeddings');
+      store = new InMemoryVectorStore();
+    }
 
     const techdocsBaseUrl =
       config.getOptionalString('backend.baseUrl') ?? 'http://localhost:7007';
@@ -310,12 +324,14 @@ export const ragServiceRef = createServiceRef<IRagService>({
         config: coreServices.rootConfig,
         logger: coreServices.logger,
         catalog: catalogServiceRef,
+        database: coreServices.database,
       },
       async factory(deps) {
-        return RagService.create({
+        return await RagService.create({
           config: deps.config,
           logger: deps.logger,
           catalog: deps.catalog as unknown as CatalogClient,
+          database: deps.database,
         });
       },
     }),

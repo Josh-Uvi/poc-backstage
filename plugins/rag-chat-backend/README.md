@@ -215,7 +215,7 @@ yarn test
 
 ### High Priority
 
-- [ ] **Replace in-memory vector store with pgvector**
+- [x] **Replace in-memory vector store with pgvector**
   - Enable the extension: `CREATE EXTENSION IF NOT EXISTS vector;`
   - Add a Knex migration for an `embeddings` table with a `vector(1536)` column
   - Implement `PgVectorStore` using `knex.raw` for `<=>` cosine distance queries
