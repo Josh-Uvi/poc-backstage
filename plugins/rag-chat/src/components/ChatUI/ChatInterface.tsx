@@ -32,6 +32,7 @@ import { SettingsPanel, SettingsState } from './SettingsPanel';
 import {
   Conversation,
   Message,
+  MessageFeedback,
   RagChatConfig,
   RagChatEmbeddingConfig,
   RagChatModel,
@@ -651,6 +652,45 @@ export const ChatInterface = (): React.ReactElement => {
     }
   };
 
+  const handleFeedback = async (messageId: string, feedback: MessageFeedback) => {
+    const convId = state.currentConversationId;
+    if (!convId) return;
+
+    // Toggle: clicking the same feedback again removes it
+    const currentMessage = currentConversation?.messages.find(m => m.id === messageId);
+    const newFeedback = currentMessage?.feedback === feedback ? undefined : feedback;
+
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      conversations: prev.conversations.map(conv =>
+        conv.id !== convId ? conv : {
+          ...conv,
+          messages: conv.messages.map(msg =>
+            msg.id !== messageId ? msg : { ...msg, feedback: newFeedback },
+          ),
+        },
+      ),
+    }));
+
+    // Send to backend (fire-and-forget with error snackbar)
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('rag-chat');
+      const res = await fetchApi.fetch(`${baseUrl}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: convId,
+          messageId,
+          feedback: newFeedback ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+    } catch {
+      showSnackbar('Failed to submit feedback', 'error');
+    }
+  };
+
   const handleSettingsClose = () => {
     setState(prev => ({
       ...prev,
@@ -803,49 +843,57 @@ export const ChatInterface = (): React.ReactElement => {
                 aria-live="polite" 
                 aria-label="Chat messages"
               >
-                {!currentConversation ? (
-                  <Box className={classes.emptyState}>
-                    <Typography variant="h4" className={classes.emptyStateTitle}>
-                      Welcome to RAG AI
-                    </Typography>
-                    <Typography variant="body1" className={classes.emptyStateDescription}>
-                      Harness the power of Retrieval-Augmented Generation to interact with your data. 
-                      Our AI-powered assistant provides context-aware, accurate, and cited answers 
-                      based on your configured knowledge sources.
-                    </Typography>
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      size="large"
-                      startIcon={<AddIcon />}
-                      onClick={handleNewConversation}
-                      style={{ borderRadius: '28px', padding: '12px 32px', fontWeight: 600 }}
-                    >
-                      Start New Conversation
-                    </Button>
-                  </Box>
-                ) : currentConversation.messages.length === 0 ? (
-                  <Box className={classes.emptyState}>
-                    <Typography variant="h5" className={classes.emptyStateTitle}>
-                      Ready to help
-                    </Typography>
-                    <Typography variant="body1" className={classes.emptyStateDescription}>
-                      Type your first message below to start the conversation with {currentConversation.title}.
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Box className={classes.messagesWrapper}>
-                    {currentConversation.messages.map(msg => (
-                      <ChatMessage key={msg.id} message={msg} userProfile={userProfile} />
-                    ))}
-                    {state.loading && (
-                      <Box className={classes.loadingContainer} aria-live="polite" aria-busy="true">
-                        <CircularProgress size={24} aria-label="Loading response..." />
+                {(() => {
+                  if (!currentConversation) {
+                    return (
+                      <Box className={classes.emptyState}>
+                        <Typography variant="h4" className={classes.emptyStateTitle}>
+                          Welcome to RAG AI
+                        </Typography>
+                        <Typography variant="body1" className={classes.emptyStateDescription}>
+                          Harness the power of Retrieval-Augmented Generation to interact with your data. 
+                          Our AI-powered assistant provides context-aware, accurate, and cited answers 
+                          based on your configured knowledge sources.
+                        </Typography>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="large"
+                          startIcon={<AddIcon />}
+                          onClick={handleNewConversation}
+                          style={{ borderRadius: '28px', padding: '12px 32px', fontWeight: 600 }}
+                        >
+                          Start New Conversation
+                        </Button>
                       </Box>
-                    )}
-                    <div ref={chatEndRef} />
-                  </Box>
-                )}
+                    );
+                  }
+                  if (currentConversation.messages.length === 0) {
+                    return (
+                      <Box className={classes.emptyState}>
+                        <Typography variant="h5" className={classes.emptyStateTitle}>
+                          Ready to help
+                        </Typography>
+                        <Typography variant="body1" className={classes.emptyStateDescription}>
+                          Type your first message below to start the conversation with {currentConversation.title}.
+                        </Typography>
+                      </Box>
+                    );
+                  }
+                  return (
+                    <Box className={classes.messagesWrapper}>
+                      {currentConversation.messages.map(msg => (
+                        <ChatMessage key={msg.id} message={msg} userProfile={userProfile} onFeedback={handleFeedback} />
+                      ))}
+                      {state.loading && (
+                        <Box className={classes.loadingContainer} aria-live="polite" aria-busy="true">
+                          <CircularProgress size={24} aria-label="Loading response..." />
+                        </Box>
+                      )}
+                      <div ref={chatEndRef} />
+                    </Box>
+                  );
+                })()}
               </Box>
 
               {/* Chat Input */}

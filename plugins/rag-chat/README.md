@@ -152,11 +152,11 @@ yarn lint
 
 ### High Priority
 
-- [ ] **Stabilize JSDOM test environment**
+- [x] **Stabilize JSDOM test environment**
   - Fix flaky event simulation for `keyDown` input submission in `ChatInterface.test.tsx`.
   - Current JSDOM limitations cause inconsistencies in synthetic event propagation for complex MUI components.
 
-- [ ] **Response Feedback System**
+- [x] **Response Feedback System**
   - Add thumbs up/down buttons to assistant messages to capture user satisfaction.
   - Send feedback to the backend for RAG quality auditing.
 

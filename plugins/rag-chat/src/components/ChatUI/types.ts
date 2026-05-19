@@ -3,6 +3,8 @@ export interface Citation {
   metadata: Record<string, string>;
 }
 
+export type MessageFeedback = 'positive' | 'negative';
+
 export interface Message {
   id: string;
   content: string;
@@ -10,6 +12,7 @@ export interface Message {
   timestamp: Date;
   streaming?: boolean;
   citations?: Citation[];
+  feedback?: MessageFeedback;
   usage?: {
     promptTokens: number;
     completionTokens: number;

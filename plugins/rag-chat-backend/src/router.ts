@@ -466,6 +466,36 @@ export async function createRouter({
   });
 
   /**
+   * POST /feedback
+   * Saves user feedback for an assistant message.
+   */
+  router.post('/feedback', async (req, res) => {
+    const credentials = await requirePermission(req, ragChatChatPermission);
+    const userRef = credentials.principal.userEntityRef;
+
+    const parsed = z
+      .object({
+        conversationId: z.string(),
+        messageId: z.string(),
+        feedback: z.enum(['positive', 'negative']).nullable(),
+      })
+      .safeParse(req.body);
+
+    if (!parsed.success) {
+      throw new InputError(parsed.error.toString());
+    }
+
+    await conversations.updateMessageFeedback(
+      parsed.data.conversationId,
+      parsed.data.messageId,
+      parsed.data.feedback,
+      userRef,
+    );
+
+    res.status(204).send();
+  });
+
+  /**
    * GET /admin/config
    * Returns the server-side ragChat config (models without tokens, sources).
    * Gated behind ragChatAdminPermission.

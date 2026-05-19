@@ -6,14 +6,20 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  IconButton,
+  Tooltip,
 } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import DescriptionIcon from '@material-ui/icons/Description';
+import ThumbUpOutlinedIcon from '@material-ui/icons/ThumbUpOutlined';
+import ThumbDownOutlinedIcon from '@material-ui/icons/ThumbDownOutlined';
+import ThumbUpIcon from '@material-ui/icons/ThumbUp';
+import ThumbDownIcon from '@material-ui/icons/ThumbDown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
-import { Message } from './types';
+import { Message, MessageFeedback } from './types';
 
 const useStyles = makeStyles(theme => ({
   messageContainer: {
@@ -136,6 +142,24 @@ const useStyles = makeStyles(theme => ({
     borderTop: `1px solid ${theme.palette.divider}`,
     whiteSpace: 'pre-wrap',
   },
+  feedbackContainer: {
+    display: 'flex',
+    gap: 2,
+    marginLeft: theme.spacing(1),
+  },
+  feedbackButton: {
+    padding: 3,
+    transition: 'color 0.2s ease, transform 0.15s ease',
+    '&:hover': {
+      transform: 'scale(1.15)',
+    },
+  },
+  feedbackActive: {
+    color: theme.palette.primary.main,
+  },
+  feedbackNegativeActive: {
+    color: theme.palette.error.main,
+  },
   '@keyframes blink': {
     '0%, 100%': { opacity: 1 },
     '50%': { opacity: 0 },
@@ -145,9 +169,10 @@ const useStyles = makeStyles(theme => ({
 interface ChatMessageProps {
   message: Message;
   userProfile?: { displayName?: string; picture?: string };
+  onFeedback?: (messageId: string, feedback: MessageFeedback) => void;
 }
 
-export const ChatMessage = ({ message, userProfile }: ChatMessageProps): React.ReactElement => {
+export const ChatMessage = ({ message, userProfile, onFeedback }: ChatMessageProps): React.ReactElement => {
   const classes = useStyles();
   const isUser = message.sender === 'user';
 
@@ -227,15 +252,43 @@ export const ChatMessage = ({ message, userProfile }: ChatMessageProps): React.R
         )}
 
         <Box style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography
-            variant="caption"
-            className={`${classes.timestamp} ${isUser ? classes.timestampUser : ''}`}
-          >
-            {new Date(message.timestamp).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </Typography>
+          <Box style={{ display: 'flex', alignItems: 'center' }}>
+            <Typography
+              variant="caption"
+              className={`${classes.timestamp} ${isUser ? classes.timestampUser : ''}`}
+            >
+              {new Date(message.timestamp).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Typography>
+
+            {/* Feedback buttons for assistant messages */}
+            {!isUser && !message.streaming && onFeedback && (
+              <Box className={classes.feedbackContainer}>
+                <Tooltip title={message.feedback === 'positive' ? 'Helpful' : 'Mark as helpful'}>
+                  <IconButton
+                    size="small"
+                    className={`${classes.feedbackButton} ${message.feedback === 'positive' ? classes.feedbackActive : ''}`}
+                    onClick={() => onFeedback(message.id, 'positive')}
+                    aria-label="Thumbs up"
+                  >
+                    {message.feedback === 'positive' ? <ThumbUpIcon fontSize="inherit" /> : <ThumbUpOutlinedIcon fontSize="inherit" />}
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={message.feedback === 'negative' ? 'Not helpful' : 'Mark as not helpful'}>
+                  <IconButton
+                    size="small"
+                    className={`${classes.feedbackButton} ${message.feedback === 'negative' ? classes.feedbackNegativeActive : ''}`}
+                    onClick={() => onFeedback(message.id, 'negative')}
+                    aria-label="Thumbs down"
+                  >
+                    {message.feedback === 'negative' ? <ThumbDownIcon fontSize="inherit" /> : <ThumbDownOutlinedIcon fontSize="inherit" />}
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            )}
+          </Box>
 
           {!isUser && message.usage && (
             <Box className={classes.usageInfo}>

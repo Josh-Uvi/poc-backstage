@@ -19,6 +19,7 @@ export interface ConversationMessage {
     completionTokens: number;
     totalTokens: number;
   };
+  feedback?: string;
 }
 
 export interface ConversationSourceRef {
@@ -66,6 +67,12 @@ export interface IConversationService {
     userRef: string,
   ): Promise<Conversation>;
   deleteConversation(id: string, userRef: string): Promise<void>;
+  updateMessageFeedback(
+    conversationId: string,
+    messageId: string,
+    feedback: string | null,
+    userRef: string,
+  ): Promise<void>;
 }
 
 // ── Row types ─────────────────────────────────────────────────────────────────
@@ -87,6 +94,7 @@ interface MessageRow {
   usage_prompt_tokens: number | null;
   usage_completion_tokens: number | null;
   usage_total_tokens: number | null;
+  feedback: string | null;
 }
 
 interface ConversationSourceRow {
@@ -237,6 +245,7 @@ export class ConversationService implements IConversationService {
             usage_prompt_tokens: m.usage?.promptTokens ?? null,
             usage_completion_tokens: m.usage?.completionTokens ?? null,
             usage_total_tokens: m.usage?.totalTokens ?? null,
+            feedback: m.feedback ?? null,
           })),
         );
       }
@@ -268,6 +277,25 @@ export class ConversationService implements IConversationService {
     this.#logger.info('Deleted conversation', { id, userRef });
   }
 
+  async updateMessageFeedback(
+    conversationId: string,
+    messageId: string,
+    feedback: string | null,
+    userRef: string,
+  ): Promise<void> {
+    await this.#requireOwnedConversation(conversationId, userRef);
+
+    const updated = await this.#db<MessageRow>('rag_chat_messages')
+      .where({ id: messageId, conversation_id: conversationId })
+      .update({ feedback });
+
+    if (updated === 0) {
+      throw new NotFoundError(`Message '${messageId}' not found`);
+    }
+
+    this.#logger.info('Updated message feedback', { messageId, feedback });
+  }
+
   async #hydrateConversation(row: ConversationRow): Promise<Conversation> {
     const messages = await this.#db<MessageRow>('rag_chat_messages')
       .where({ conversation_id: row.id })
@@ -289,6 +317,7 @@ export class ConversationService implements IConversationService {
           completionTokens: m.usage_completion_tokens!,
           totalTokens: m.usage_total_tokens!,
         } : undefined,
+        feedback: m.feedback ?? undefined,
       })),
     };
   }
