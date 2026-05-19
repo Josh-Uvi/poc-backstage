@@ -8,19 +8,22 @@ import {
   fetchApiRef,
   identityApiRef,
 } from '@backstage/core-plugin-api';
+import type { RagChatConfig } from './types';
 
 // ── Shared mock factories ─────────────────────────────────────────────────────
 
+const mockConfig: RagChatConfig = {
+  models: [{ id: 'gemini-flash', name: 'Gemini Flash', provider: 'google', tokenConfigured: true }],
+  sources: [{ id: 'catalog', name: 'Software Catalog', type: 'catalog' }],
+  embedding: { provider: 'google', model: 'gemini-embedding-2', tokenConfigured: true },
+  defaultModelId: 'gemini-flash',
+  defaultEmbeddingModelId: 'gemini-embedding-2',
+  defaultSourceIds: ['catalog'],
+  permissionEnabled: false,
+};
+
 const mockConfigApi = {
-  getConfig: () => ({
-    models: [{ id: 'gemini-flash', name: 'Gemini Flash', provider: 'google' as const, tokenConfigured: true }],
-    sources: [{ id: 'catalog', name: 'Software Catalog', type: 'catalog' as const }],
-    embedding: { provider: 'google' as const, model: 'gemini-embedding-2', tokenConfigured: true },
-    defaultModelId: 'gemini-flash',
-    defaultEmbeddingModelId: 'gemini-embedding-2',
-    defaultSourceIds: ['catalog'],
-    permissionEnabled: false,
-  }),
+  getConfig: () => mockConfig,
 };
 
 const mockIdentityApi = {
@@ -103,12 +106,12 @@ const makeChatFetchApi = (sseEvents: object[]) => ({
   }),
 });
 
-/** Type and submit a message via fireEvent only (avoids Suspense conflicts) */
-const sendMessage = (input: HTMLElement, message: string) => {
-  fireEvent.change(input, { target: { value: message } });
-  // MUI multiline TextField renders a <textarea> — fire keydown on it directly
-  const textarea = input.tagName === 'TEXTAREA' ? input : input.querySelector('textarea') ?? input;
-  fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
+/** Type and submit a message using userEvent for reliable JSDOM simulation */
+const sendMessage = async (input: HTMLElement, message: string) => {
+  const user = userEvent.setup({ delay: null });
+  await user.clear(input);
+  await user.type(input, message);
+  await user.keyboard('{Enter}');
 };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -124,7 +127,8 @@ describe('ChatInterface', () => {
   });
 
   const setupConversation = async () => {
-    fireEvent.click(screen.getByText(/Start New Conversation/i));
+    const user = userEvent.setup({ delay: null });
+    await user.click(screen.getByText(/Start New Conversation/i));
     await waitFor(() =>
       expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
     );
@@ -398,17 +402,9 @@ describe('ChatInterface', () => {
 
   describe('sending messages', () => {
     it('adds the user message to the conversation immediately', async () => {
-      const user = userEvent.setup();
       await renderApp();
-
-      await user.click(screen.getByText(/Start New Conversation/i));
-      await waitFor(() =>
-        expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
-      );
-
-      const input = screen.getByPlaceholderText(/type your message/i);
-      await user.type(input, 'Hello world');
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
+      const input = await setupConversation();
+      sendMessage(input, 'Hello world');
 
       await waitFor(() =>
         expect(screen.getByText('Hello world')).toBeInTheDocument(),
@@ -416,17 +412,9 @@ describe('ChatInterface', () => {
     });
 
     it('sets the conversation title from the first message', async () => {
-      const user = userEvent.setup();
       await renderApp();
-
-      await user.click(screen.getByText(/Start New Conversation/i));
-      await waitFor(() =>
-        expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
-      );
-
-      const input = screen.getByPlaceholderText(/type your message/i);
-      await user.type(input, 'What is Backstage?');
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
+      const input = await setupConversation();
+      sendMessage(input, 'What is Backstage?');
 
       await waitFor(() =>
         expect(screen.getByText('What is Backstage?')).toBeInTheDocument(),
@@ -434,18 +422,11 @@ describe('ChatInterface', () => {
     });
 
     it('truncates long first messages to 40 chars for the title', async () => {
-      const user = userEvent.setup();
       await renderApp();
-
-      await user.click(screen.getByText(/Start New Conversation/i));
-      await waitFor(() =>
-        expect(screen.getByPlaceholderText(/type your message/i)).toBeInTheDocument(),
-      );
+      const input = await setupConversation();
 
       const longMessage = 'This is a very long message that exceeds forty characters easily';
-      const input = screen.getByPlaceholderText(/type your message/i);
-      await user.type(input, longMessage);
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
+      sendMessage(input, longMessage);
 
       await waitFor(() => {
         // Title should be truncated with ellipsis
