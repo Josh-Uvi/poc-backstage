@@ -208,14 +208,16 @@ export const ChatInput = ({
             accept=".txt,.md,.csv,.json"
           />
           <Tooltip title="Attach document">
-            <IconButton
-              onClick={() => fileInputRef.current?.click()}
-              disabled={disabled}
-              className={classes.button}
-              aria-label="Attach file"
-            >
-              <AttachFileIcon />
-            </IconButton>
+            <span>
+              <IconButton
+                onClick={() => fileInputRef.current?.click()}
+                disabled={disabled}
+                className={classes.button}
+                aria-label="Attach file"
+              >
+                <AttachFileIcon />
+              </IconButton>
+            </span>
           </Tooltip>
           <TextField
             fullWidth
@@ -234,14 +236,16 @@ export const ChatInput = ({
             }}
           />
           <Tooltip title="Send message">
-            <IconButton
-              onClick={handleSend}
-              disabled={(!input.trim() && pendingFiles.length === 0) || disabled}
-              className={`${classes.button} ${classes.sendButton}`}
-              aria-label="Send message"
-            >
-              <SendIcon />
-            </IconButton>
+            <span>
+              <IconButton
+                onClick={handleSend}
+                disabled={(!input.trim() && pendingFiles.length === 0) || disabled}
+                className={`${classes.button} ${classes.sendButton}`}
+                aria-label="Send message"
+              >
+                <SendIcon />
+              </IconButton>
+            </span>
           </Tooltip>
         </Box>
       </Box>

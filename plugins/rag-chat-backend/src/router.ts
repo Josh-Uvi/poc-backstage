@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { HttpAuthService, PermissionsService } from '@backstage/backend-plugin-api';
+import { HttpAuthService, PermissionsService, AuditorService } from '@backstage/backend-plugin-api';
 import { InputError, NotFoundError, NotAllowedError } from '@backstage/errors';
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import { z } from 'zod/v3';
@@ -66,6 +66,8 @@ export async function createRouter({
   userCredentials,
   llm,
   rag,
+  rateLimitPerMinute,
+  auditor,
 }: {
   httpAuth: HttpAuthService;
   permissions: PermissionsService;
@@ -74,9 +76,30 @@ export async function createRouter({
   userCredentials: IUserCredentialsService;
   llm: ILlmService;
   rag: IRagService;
+  rateLimitPerMinute?: number;
+  auditor?: AuditorService;
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
+
+  // ── Per-user in-memory rate limiter (sliding-window) ────────────────────────
+  const rateLimitMap = new Map<string, number[]>();
+
+  const checkRateLimit = (userRef: string) => {
+    if (!rateLimitPerMinute) return; // disabled
+    const now = Date.now();
+    const windowMs = 60_000;
+    const timestamps = (rateLimitMap.get(userRef) ?? []).filter(
+      t => now - t < windowMs,
+    );
+    if (timestamps.length >= rateLimitPerMinute) {
+      throw new NotAllowedError(
+        `Rate limit exceeded: max ${rateLimitPerMinute} requests per minute`,
+      );
+    }
+    timestamps.push(now);
+    rateLimitMap.set(userRef, timestamps);
+  };
 
   // ── Permission helpers ──────────────────────────────────────────────────────
 
@@ -245,6 +268,18 @@ export async function createRouter({
     }
     const userRef = credentials.principal.userEntityRef;
 
+    // Rate limit check
+    try {
+      checkRateLimit(userRef);
+    } catch (e: any) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.flushHeaders();
+      res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+      res.end();
+      return;
+    }
+
     const parsed = chatSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new InputError(parsed.error.toString());
@@ -402,8 +437,35 @@ export async function createRouter({
         citations: isGeneralChat ? [] : contextChunks,
         usage,
       });
+
+      await auditor?.createEvent({
+        eventId: 'rag-chat.chat',
+        severityLevel: 'low',
+        request: req as any,
+        meta: {
+          userRef,
+          modelId,
+          sourceIds,
+          conversationId: convId,
+          status: 'success',
+          usage,
+        },
+      }).catch(() => { /* best-effort */ });
     } catch (e: any) {
       sendEvent({ type: 'error', error: e?.message ?? 'Unknown error' });
+
+      await auditor?.createEvent({
+        eventId: 'rag-chat.chat',
+        severityLevel: 'medium',
+        request: req as any,
+        meta: {
+          userRef,
+          modelId,
+          conversationId,
+          status: 'error',
+          error: e?.message,
+        },
+      }).catch(() => { /* best-effort */ });
     } finally {
       res.end();
     }

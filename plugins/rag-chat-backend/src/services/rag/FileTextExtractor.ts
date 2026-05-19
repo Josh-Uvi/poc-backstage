@@ -1,4 +1,5 @@
 import zlib from 'node:zlib';
+import { PDFParse } from 'pdf-parse';
 import JSZip from 'jszip';
 
 function decodeXmlEntities(text: string): string {
@@ -134,7 +135,19 @@ async function extractDocxText(buffer: Buffer): Promise<string> {
   return normaliseWhitespace(text);
 }
 
-function extractPdfText(buffer: Buffer): string {
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  // Primary: use pdf-parse for reliable text-layer extraction
+  try {
+    const data =  new PDFParse(buffer);
+    const parsed = normaliseWhitespace((await data.getText()).text ?? '');
+    if (parsed) {
+      return parsed;
+    }
+  } catch {
+    // fall through to custom extractor
+  }
+
+  // Fallback: custom stream-level parser (handles some edge cases pdf-parse misses)
   const pdf = buffer.toString('latin1');
   const streamRegex = /(?:\d+\s+\d+\s+obj[\s\S]*?)?stream\r?\n([\s\S]*?)\r?\nendstream/g;
   const fragments: string[] = [];

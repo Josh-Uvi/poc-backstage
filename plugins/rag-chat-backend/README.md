@@ -229,14 +229,14 @@ yarn test
 
 ### Medium Priority
 
-- [ ] **PDF extraction improvements**
+- [x] **PDF extraction improvements**
   - Current extraction reads the raw text layer only — scanned PDFs return empty
   - Integrate `pdf-parse` or `pdfjs-dist` for reliable extraction
 
-- [ ] **Rate limiting on `POST /chat`**
+- [x] **Rate limiting on `POST /chat`**
   - Add per-user rate limiting configurable via `ragChat.rateLimit.requestsPerMinute`
 
-- [ ] **Audit logging**
+- [x] **Audit logging**
   - Use Backstage's `AuditorService` to log chat requests with model, sources, and user ref
 
 ### Lower Priority

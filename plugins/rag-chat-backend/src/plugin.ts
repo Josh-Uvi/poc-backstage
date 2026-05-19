@@ -24,6 +24,7 @@ export const ragChatPlugin = createBackendPlugin({
         llm: llmServiceRef,
         rag: ragServiceRef,
         scheduler: coreServices.scheduler,
+        auditor: coreServices.auditor,
       },
       async init({
         config,
@@ -36,9 +37,13 @@ export const ragChatPlugin = createBackendPlugin({
         llm,
         rag,
         scheduler,
+        auditor,
       }) {
         const permissionsEnabled =
           config.getOptionalBoolean('ragChat.permission.enabled') ?? false;
+
+        const rateLimitPerMinute =
+          config.getOptionalNumber('ragChat.rateLimit.requestsPerMinute');
 
         if (permissionsEnabled) {
           permissionsRegistry.addPermissions(ragChatPermissions);
@@ -53,6 +58,8 @@ export const ragChatPlugin = createBackendPlugin({
             userCredentials,
             llm,
             rag,
+            rateLimitPerMinute: rateLimitPerMinute ?? undefined,
+            auditor,
           }),
         );
         httpRouter.addAuthPolicy({
