@@ -15,9 +15,10 @@ function normaliseWhitespace(text: string): string {
   return text
     .replace(/\r/g, '')
     .split('\u0000').join('')
-    .replace(/[ \t]+\n/g, '\n')
+    .split('\n')
+    .map(line => line.trim().replace(/ {2,}/g, ' '))
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
 

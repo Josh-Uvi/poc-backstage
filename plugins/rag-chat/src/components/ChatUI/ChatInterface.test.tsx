@@ -448,7 +448,8 @@ describe('ChatInterface', () => {
       );
 
       const input = screen.getByPlaceholderText(/type your message/i);
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, charCode: 13 });
+      input.focus();
+      await user.keyboard('{Enter}');
 
       // No chat POST should have been made
       const chatCalls = (fetchApi.fetch as jest.Mock).mock.calls.filter(

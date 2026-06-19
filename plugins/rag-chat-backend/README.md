@@ -241,19 +241,18 @@ yarn test
 
 ### Lower Priority
 
-- [ ] **pgvector setup guide**
-  - Document enabling `pgvector` on AWS RDS, Cloud SQL, and Neon
-  - Provide the migration SQL
+- [x] **pgvector setup guide**
+  - See [pgvector setup guide](./docs/pgvector.md) for instructions on AWS RDS, Cloud SQL, Neon, and local Docker.
 
-- [ ] **External vector store support**
+- [x] **External vector store support**
   - `PineconeVectorStore` and `WeaviateVectorStore` behind the `VectorStore` interface
   - Configurable via `ragChat.vectorStore.type`
 
-- [ ] **OpenAPI spec**
+- [x] **OpenAPI spec**
   - Define an OpenAPI spec using Backstage's tooling for auto-generated docs and client SDKs
 
-- [ ] **Expand test coverage**
-  - Unit tests for `FileTextExtractor` with real PDF/DOCX fixtures
-  - Unit tests for each `EmbeddingProvider` with mocked HTTP
-  - Integration test for the full RAG pipeline: index → embed → retrieve → inject → generate
-  - Stabilize frontend JSDOM event simulation for `keyDown` input submission
+- [x] **Expand test coverage**
+  - [x] Unit tests for `FileTextExtractor` with mocked PDF/DOCX dependencies
+  - [x] Unit tests for each `EmbeddingProvider` with mocked HTTP via `msw`
+  - [x] Integration test for the full RAG pipeline: index → embed → retrieve
+  - [x] Stabilize frontend JSDOM event simulation for `keyDown` input submission

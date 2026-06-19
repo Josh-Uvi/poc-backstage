@@ -33,6 +33,7 @@
     "@backstage/plugin-permission-common": "^0.8.3",
     "@backstage/types": "^1.2.2",
     "@google/genai": "^1.0.0",
+    "@pinecone-database/pinecone": "^7.2.0",
     "express": "^4.14.0",
     "express-promise-router": "^4.1.0",
     "jszip": "^3.10.1",
@@ -42,6 +43,7 @@
     "node-html-parser": "^6.1.13",
     "openai": "^4.103.0",
     "pdf-parse": "^2.4.5",
+    "weaviate-client": "^3.13.0",
     "zod": "^3.25.76 || ^4.0.0"
   },
   "devDependencies": {
@@ -52,6 +54,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/supertest": "^2.0.12",
     "jest": "^30.0.0",
+    "msw": "^2.14.6",
     "supertest": "^6.2.4"
   },
   "files": [

@@ -15,6 +15,7 @@ export const ragChatPlugin = createBackendPlugin({
     env.registerInit({
       deps: {
         config: coreServices.rootConfig,
+        auth: coreServices.auth,
         httpAuth: coreServices.httpAuth,
         httpRouter: coreServices.httpRouter,
         permissions: coreServices.permissions,
@@ -28,6 +29,7 @@ export const ragChatPlugin = createBackendPlugin({
       },
       async init({
         config,
+        auth,
         httpAuth,
         httpRouter,
         permissions,
@@ -73,16 +75,10 @@ export const ragChatPlugin = createBackendPlugin({
           frequency: { minutes: 60 },
           timeout: { minutes: 15 },
           fn: async () => {
-            // We need credentials to access the catalog and techdocs
-            // Using a system token or backend auth is recommended,
-            // but for simplicity we'll pass empty credentials which may work
-            // if permissions are disabled or if the backend can self-authenticate.
-            // Ideally, we'd use `auth.getPluginRequestToken()` here.
             try {
-              // We pass empty credentials since scheduled tasks don't have a user context.
-              // In a real setup, we'd use ServerTokenManager or AuthService.
-              await rag.indexSource('catalog', {} as any);
-              await rag.indexSource('techdocs', {} as any);
+              const credentials = await auth.getOwnServiceCredentials();
+              await rag.indexSource('catalog', credentials);
+              await rag.indexSource('techdocs', credentials);
             } catch (error) {
               console.error('Scheduled RAG indexing failed', error);
             }

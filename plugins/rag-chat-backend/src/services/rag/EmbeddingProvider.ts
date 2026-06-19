@@ -27,6 +27,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     const response = await this.#client.embeddings.create({
       model: this.#model,
       input: texts,
+      encoding_format: 'float',
     });
     return response.data
       .sort((a, b) => a.index - b.index)

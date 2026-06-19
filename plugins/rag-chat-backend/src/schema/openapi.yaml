@@ -1,0 +1,205 @@
+openapi: 3.0.3
+info:
+  title: Backstage RAG Chat API
+  version: 1.0.0
+  description: API for the Backstage RAG Chat plugin
+servers:
+  - url: /api/rag-chat
+paths:
+  /chat:
+    post:
+      summary: Send a message to the LLM
+      description: Sends a chat message and returns a Server-Sent Events (SSE) stream of tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+                - conversationId
+              properties:
+                message:
+                  type: string
+                conversationId:
+                  type: string
+                sourceIds:
+                  type: array
+                  items:
+                    type: string
+                modelId:
+                  type: string
+                temperature:
+                  type: number
+      responses:
+        '200':
+          description: SSE stream of tokens
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Invalid request body
+        '403':
+          description: Permission denied
+
+  /upload:
+    post:
+      summary: Upload a file for context extraction
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                conversationId:
+                  type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+
+  /conversations:
+    get:
+      summary: List conversations
+      responses:
+        '200':
+          description: A list of conversations for the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+    post:
+      summary: Create or update a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+      responses:
+        '200':
+          description: Success
+
+  /conversations/{id}:
+    delete:
+      summary: Delete a conversation
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted successfully
+
+  /feedback:
+    post:
+      summary: Provide feedback on an assistant message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - conversationId
+                - messageId
+              properties:
+                conversationId:
+                  type: string
+                messageId:
+                  type: string
+                feedback:
+                  type: string
+                  enum: [positive, negative, null]
+      responses:
+        '204':
+          description: Feedback saved
+
+  /credentials:
+    post:
+      summary: Save API tokens for a specific model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - modelId
+                - apiToken
+              properties:
+                modelId:
+                  type: string
+                apiToken:
+                  type: string
+                apiBaseUrl:
+                  type: string
+      responses:
+        '204':
+          description: Credentials saved
+
+  /admin/config:
+    get:
+      summary: Get server-side configuration
+      description: Returns safe server-side config without tokens.
+      responses:
+        '200':
+          description: Config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                  sources:
+                    type: array
+
+components:
+  schemas:
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        feedback:
+          type: string
+          enum: [positive, negative]
+    Conversation:
+      type: object
+      required:
+        - id
+        - title
+        - messages
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'

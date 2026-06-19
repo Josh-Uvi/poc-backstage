@@ -16,8 +16,10 @@ import {
   GoogleEmbeddingProvider,
   AnthropicEmbeddingProvider,
 } from './EmbeddingProvider';
-import { InMemoryVectorStore, VectorStore, VectorEntry } from './VectorStore';
+import { VectorStore, InMemoryVectorStore } from './VectorStore';
 import { PgVectorStore } from './PgVectorStore';
+import { PineconeVectorStore } from './PineconeVectorStore';
+import { WeaviateVectorStore } from './WeaviateVectorStore';
 import { CatalogRagSource } from './CatalogRagSource';
 import { TechDocsRagSource } from './TechDocsRagSource';
 import { CustomRagSource, CustomSourceConfig } from './CustomRagSource';
@@ -79,11 +81,32 @@ export class RagService implements IRagService {
     const clientType = client.client.config.client;
     
     let store: VectorStore;
-    if (clientType === 'pg' || clientType === 'postgresql') {
+    const vectorStoreType = config.getOptionalString('ragChat.vectorStore.type');
+
+    if (vectorStoreType === 'pinecone') {
+      logger.info('Using PineconeVectorStore for RAG embeddings');
+      store = new PineconeVectorStore({
+        apiKey: config.getString('ragChat.vectorStore.pinecone.apiKey'),
+        indexName: config.getString('ragChat.vectorStore.pinecone.indexName'),
+        host: config.getOptionalString('ragChat.vectorStore.pinecone.host'),
+      });
+    } else if (vectorStoreType === 'weaviate') {
+      logger.info('Using WeaviateVectorStore for RAG embeddings');
+      store = new WeaviateVectorStore({
+        scheme: config.getString('ragChat.vectorStore.weaviate.scheme') as 'http' | 'https',
+        host: config.getString('ragChat.vectorStore.weaviate.host'),
+        port: config.getOptionalNumber('ragChat.vectorStore.weaviate.port'),
+        apiKey: config.getOptionalString('ragChat.vectorStore.weaviate.apiKey'),
+        className: config.getOptionalString('ragChat.vectorStore.weaviate.className'),
+      });
+    } else if (vectorStoreType === 'memory') {
+      logger.info('Using InMemoryVectorStore for RAG embeddings');
+      store = new InMemoryVectorStore();
+    } else if (clientType === 'pg' || clientType === 'postgresql') {
       logger.info('Using PgVectorStore for RAG embeddings');
       store = new PgVectorStore(client as any);
     } else {
-      logger.info('Using InMemoryVectorStore for RAG embeddings');
+      logger.info('Using InMemoryVectorStore for RAG embeddings (fallback for SQLite)');
       store = new InMemoryVectorStore();
     }
 
