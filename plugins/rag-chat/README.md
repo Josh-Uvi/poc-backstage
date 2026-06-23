@@ -4,27 +4,6 @@ A Backstage **frontend** plugin that provides an AI-powered chat interface with 
 
 Requires [`@internal/backstage-plugin-rag-chat-backend`](../rag-chat-backend/README.md) to be installed and running.
 
-
-## How the two plugins relate
-
-Both plugins share a single `ragChat:` config block in `app-config.yaml`, but each reads a **different subset** of it:
-
-| Config key | Read by | Purpose |
-|---|---|---|
-| `ragChat.defaultModelId` | **Frontend** | Pre-selects a model in the Settings panel |
-| `ragChat.defaultSourceIds` | **Frontend** | Pre-selects RAG sources in the Settings panel |
-| `ragChat.permission.enabled` | **Frontend + Backend** | Toggles permission enforcement in both plugins |
-| `ragChat.providers.type` | **Frontend + Backend** | Provider type (`openai`, `anthropic`, `google`, `custom`) |
-| `ragChat.providers.apiToken` | **Backend only** ⚠️ | Shared provider token — never sent to the browser |
-| `ragChat.providers.apiBaseUrl` | **Frontend + Backend** | Optional shared API base URL |
-| `ragChat.providers.chatModel[]` | **Frontend + Backend** | Available chat models for the selected provider |
-| `ragChat.providers.embedding.model` | **Frontend + Backend** | Default embedding model for the selected provider |
-| `ragChat.sources[].id/name/type/description` | **Frontend + Backend** | Source identity and display |
-| `ragChat.sources[].target` | **Backend only** | URL or file path for custom sources |
-
-> **Security rule:** `providers.apiToken` is read exclusively by the backend process for production use. Backstage's config system serves the `ragChat:` block to the frontend browser bundle — **never put real API tokens in `app-config.yaml` without using environment variable substitution** (e.g. `${OPENAI_API_TOKEN}`).
-
-
 ## Installation
 
 ```sh
@@ -146,29 +125,28 @@ yarn lint
 | `src/components/ChatUI/ChatSidebar.tsx` | Conversation list with search and filter |
 | `src/components/ChatUI/SettingsPanel.tsx` | Settings dialog with permission-aware controls |
 
----
 
-## TODO — Remaining Work to Production
+## How the two plugins relate
 
-### High Priority
+Both plugins share a single `ragChat:` config block in `app-config.yaml`, but each reads a **different subset** of it:
 
-- [x] **Stabilize JSDOM test environment**
-  - Fix flaky event simulation for `keyDown` input submission in `ChatInterface.test.tsx`.
-  - Current JSDOM limitations cause inconsistencies in synthetic event propagation for complex MUI components.
+| Config key | Read by | Purpose |
+|---|---|---|
+| `ragChat.defaultModelId` | **Frontend** | Pre-selects a model in the Settings panel |
+| `ragChat.defaultSourceIds` | **Frontend** | Pre-selects RAG sources in the Settings panel |
+| `ragChat.permission.enabled` | **Frontend + Backend** | Toggles permission enforcement in both plugins |
+| `ragChat.providers.type` | **Frontend + Backend** | Provider type (`openai`, `anthropic`, `google`, `custom`) |
+| `ragChat.providers.apiToken` | **Backend only** ⚠️ | Shared provider token — never sent to the browser |
+| `ragChat.providers.apiBaseUrl` | **Frontend + Backend** | Optional shared API base URL |
+| `ragChat.providers.chatModel[]` | **Frontend + Backend** | Available chat models for the selected provider |
+| `ragChat.providers.embedding.model` | **Frontend + Backend** | Default embedding model for the selected provider |
+| `ragChat.sources[].id/name/type/description` | **Frontend + Backend** | Source identity and display |
+| `ragChat.sources[].target` | **Backend only** | URL or file path for custom sources |
 
-- [x] **Response Feedback System**
-  - Add thumbs up/down buttons to assistant messages to capture user satisfaction.
-  - Send feedback to the backend for RAG quality auditing.
+> **Security rule:** `providers.apiToken` is read exclusively by the backend process for production use. Backstage's config system serves the `ragChat:` block to the frontend browser bundle — **never put real API tokens in `app-config.yaml` without using environment variable substitution** (e.g. `${OPENAI_API_TOKEN}`).
 
-### Medium Priority
 
-- [x] **Advanced File Preview**
-  - Preview the content of uploaded documents (TXT/MD) before sending the message.
-
-- [x] **Custom System Prompt Tuning**
-  - Allow administrators to adjust the base system instructions via the Settings panel.
-
-### Lower Priority
+## TODO 
 
 - [ ] **Image Generation Support**
   - Integrate with DALL-E or Stable Diffusion for image generation responses.
